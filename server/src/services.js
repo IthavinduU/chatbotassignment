@@ -1,10 +1,9 @@
-// Shared operations used by several routes (direct admin actions and approved requests).
 const { col, toId } = require('./db');
 const { audit } = require('./audit');
 const realtime = require('./realtime');
 const { HttpError, hasId, ageOn, isGroupAdmin, isMember } = require('./utils');
 
-// ---- lookups / middleware ----
+
 
 async function findGroup(id) {
   const group = await col.groups().findOne({ _id: toId(id) });
@@ -18,7 +17,6 @@ async function findChannel(id) {
   return channel;
 }
 
-/** Loads req.group from :gid and checks the user belongs to it. */
 async function loadMemberGroup(req, res, next) {
   req.group = await findGroup(req.params.gid);
   if (!isMember(req.group, req.user._id)) throw new HttpError(403, 'You are not a member of this group');
@@ -35,7 +33,6 @@ async function channelIdsOf(groupId) {
   return channels.map((c) => c._id);
 }
 
-// ---- groups ----
 
 async function assertGroupNameFree(name, exceptId = null) {
   const existing = await col.groups().findOne({ nameKey: name.toLowerCase() });
@@ -78,7 +75,6 @@ async function deleteGroup(group, actor) {
   realtime.groupChanged(group);
 }
 
-// ---- members ----
 
 async function addMember(group, user, actor) {
   if (hasId(group.bannedIds, user._id)) throw new HttpError(400, `${user.username} is banned from this group`);
@@ -96,7 +92,6 @@ async function addMember(group, user, actor) {
   realtime.groupChanged(group, [user._id]);
 }
 
-/** Moves a member to the "past members" list. `reason` is the audit type. */
 async function removeMember(group, user, actor, type = 'member.leave', details = {}) {
   await col.groups().updateOne(
     { _id: group._id },
@@ -107,7 +102,6 @@ async function removeMember(group, user, actor, type = 'member.leave', details =
   realtime.groupChanged(group, [user._id]);
 }
 
-/** Removes members who are younger than the group's age limit. Admins are never removed. */
 async function enforceAgeLimit(group, actor) {
   if (!group.ageLimit) return [];
   const members = await col.users()
@@ -120,7 +114,6 @@ async function enforceAgeLimit(group, actor) {
   return underage.map((u) => u.username);
 }
 
-// ---- channels ----
 
 async function createChannel(group, name, actor) {
   if (await col.channels().findOne({ groupId: group._id, name })) {
@@ -147,10 +140,7 @@ async function deleteChannel(channel, group, actor, type = 'channel.delete') {
   if (group) realtime.groupChanged(group);
 }
 
-/**
- * Message history rule: a member sees everything sent since they joined the group,
- * plus at most the 3 messages sent just before they joined.
- */
+
 async function historyFor(channel, group, userId) {
   const joinedAt = new Date(group.memberSince?.[String(userId)] ?? group.createdAt);
   const before = await col.messages()
