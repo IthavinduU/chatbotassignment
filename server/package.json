@@ -1,0 +1,25 @@
+{
+  "name": "relay-server",
+  "version": "2.0.0",
+  "description": "Express + Socket.io + MongoDB API for the Relay chat app",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test --test-concurrency=1 --test-reporter=spec test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.18.0",
+    "multer": "^2.0.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1",
+    "supertest": "^7.1.4"
+  }
+}
