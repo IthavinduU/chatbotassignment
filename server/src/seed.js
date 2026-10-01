@@ -1,4 +1,3 @@
-// Creates the super admin (and demo data) the first time the server runs against an empty database.
 const bcrypt = require('bcryptjs');
 const { col } = require('./db');
 
@@ -8,7 +7,7 @@ async function makeUser(username, role, birthdate) {
   const user = {
     username,
     usernameKey: username.toLowerCase(),
-    email: `${username}@Fabulari.local`,
+    email: `${username}@fabulari.local`,
     passwordHash: await bcrypt.hash(DEMO_PASSWORD, 10),
     birthdate: new Date(birthdate),
     avatarUrl: null,

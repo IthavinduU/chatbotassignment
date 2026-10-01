@@ -1,4 +1,3 @@
-// Shared setup for the automated tests. Uses a separate database (Fabulari_test) that is wiped before each file.
 process.env.CHANNEL_INACTIVE_DAYS = '0';
 const request = require('supertest');
 const db = require('../src/db');
@@ -6,14 +5,14 @@ const { createApp } = require('../src/app');
 const { seed } = require('../src/seed');
 
 const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017';
-const TEST_DB = process.env.TEST_DB_NAME || 'Fabulari_test';
+const TEST_DB = process.env.TEST_DB_NAME || 'fabulari_test';
 
 async function resetDatabase() {
   await db.connect(MONGO_URL, TEST_DB);
   await db.getDb().dropDatabase();
   await db.close();
-  await db.connect(MONGO_URL, TEST_DB); // reconnect so indexes are recreated
-  await seed({ demo: false }); // creates super / 123
+  await db.connect(MONGO_URL, TEST_DB); 
+  await seed({ demo: false }); 
 }
 
 function makeClient(app) {
