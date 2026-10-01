@@ -1,0 +1,16 @@
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; align-items: start; }
+.grid .panel { margin: 0; }
+.list { list-style: none; margin: 0 0 1rem; padding: 0; }
+.list li { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+.list li:last-child { border-bottom: 0; }
+.list a { color: var(--ink); font-weight: 600; }
+.grow { flex: 1; min-width: 0; }
+.status-banned .member-name { color: var(--danger); font-weight: 700; }
+.status-past .member-name { color: var(--muted); }
+.online-label { color: #1e7a3d; font-weight: 600; }
+.ban-form { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; padding: 0.6rem; background: var(--danger-soft); border-radius: 8px; }
+fieldset { border: 0; padding: 0; margin: 0; }
+legend { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.35rem; }
+.swatches { display: flex; gap: 0.5rem; }
+.swatch { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.8rem; border-radius: 999px; background: var(--accent); color: var(--accent-contrast); font-weight: 700; text-transform: capitalize; cursor: pointer; }
+.swatch input { width: auto; margin: 0; }

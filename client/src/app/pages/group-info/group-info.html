@@ -1,0 +1,133 @@
+<div class="page">
+  @if (!group()) {
+    <section class="panel">
+      <h1>Group not found</h1>
+      <p class="muted">You may no longer be a member. <a routerLink="/app">Back to your chatrooms</a></p>
+    </section>
+  } @else {
+    @let g = group()!;
+    <header class="page-head">
+      <h1>{{ g.name }}</h1>
+      <p class="muted">
+        {{ g.memberIds.length }} {{ g.memberIds.length === 1 ? 'member' : 'members' }}
+        @if (g.ageLimit) { · Age {{ g.ageLimit }}+ }
+        @if (isAdmin()) { · <span class="tag">You're an admin</span> }
+      </p>
+    </header>
+
+    <div class="grid">
+      <!-- Chatrooms -->
+      <section class="panel">
+        <h2>Chatrooms</h2>
+        <ul class="list">
+          @for (c of g.channels; track c._id) {
+            <li>
+              <a class="grow" [routerLink]="['/app/groups', g._id, 'rooms', c._id]"># {{ c.name }}</a>
+              @if (isAdmin()) {
+                <button type="button" class="btn btn-quiet btn-sm" (click)="deleteRoom(c)" [disabled]="busy()">Delete</button>
+              }
+            </li>
+          } @empty {
+            <li class="muted">No chatrooms yet.</li>
+          }
+        </ul>
+        <form class="inline-form" (ngSubmit)="addRoom()">
+          <label class="field grow">
+            <span>{{ isAdmin() ? 'New chatroom' : 'Request a new chatroom' }}</span>
+            <input name="room" [(ngModel)]="newRoom" maxlength="30" placeholder="Chatroom name" />
+          </label>
+          <button class="btn btn-primary" [disabled]="busy() || !newRoom.trim()">{{ isAdmin() ? 'Create' : 'Send request' }}</button>
+        </form>
+      </section>
+
+      <!-- Settings (admins) -->
+      @if (isAdmin()) {
+        <section class="panel">
+          <h2>Group settings</h2>
+          <form class="stack" (ngSubmit)="saveSettings()">
+            <label class="field">
+              <span>Name</span>
+              <input name="name" [(ngModel)]="name" maxlength="40" required />
+            </label>
+            <fieldset class="field">
+              <legend>Theme (applies to every chatroom in this group)</legend>
+              <div class="swatches">
+                @for (t of themes; track t) {
+                  <label class="swatch" [attr.data-theme]="t">
+                    <input type="radio" name="theme" [value]="t" [(ngModel)]="theme" />
+                    <span>{{ t }}</span>
+                  </label>
+                }
+              </div>
+            </fieldset>
+            <label class="field">
+              <span>Minimum age (leave empty for none)</span>
+              <input type="number" name="age" [(ngModel)]="ageLimit" min="1" max="120" />
+              <small class="hint">Members under this age are removed when you save.</small>
+            </label>
+            <button class="btn btn-primary" [disabled]="busy()">Save settings</button>
+          </form>
+        </section>
+      }
+
+      <!-- Members -->
+      <section class="panel members-panel">
+        @if (isAdmin() && groups.members().history) {
+          <h2>All members, past and present</h2>
+          <p class="hint">Banned members are shown in red and can't rejoin.</p>
+          <ul class="list">
+            @for (m of groups.members().history!; track m._id) {
+              <li [class]="'status-' + m.status">
+                <app-avatar [username]="m.username" [avatarUrl]="m.avatarUrl" [size]="28" />
+                <span class="grow member-name">
+                  {{ m.username }}
+                  @if (m.isAdmin) { <span class="tag">Admin</span> }
+                  @if (m.status === 'past') { <span class="muted small">(past member)</span> }
+                  @if (m.status === 'banned') { <span class="small">(banned)</span> }
+                </span>
+                @if (m.status === 'current' && !m.isAdmin && m._id !== me()?._id) {
+                  <button type="button" class="btn btn-quiet btn-sm" (click)="requestPromotion(m)" [disabled]="busy()">Request promotion</button>
+                  <button type="button" class="btn btn-quiet btn-sm" (click)="openBan(m)" [disabled]="busy()">Ban</button>
+                }
+                @if (banTarget() === m._id) {
+                  <form class="ban-form" (ngSubmit)="confirmBan(m)">
+                    <label class="field grow">
+                      <span>Reason (goes to the super admin's ban log)</span>
+                      <input name="reason" [(ngModel)]="banReason" maxlength="300" />
+                    </label>
+                    <button class="btn btn-danger btn-sm" [disabled]="busy()">Ban {{ m.username }}</button>
+                    <button type="button" class="btn btn-quiet btn-sm" (click)="banTarget.set(null)">Cancel</button>
+                  </form>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <h2>Members</h2>
+          <ul class="list">
+            @for (m of groups.members().current; track m._id) {
+              <li>
+                <app-avatar [username]="m.username" [avatarUrl]="m.avatarUrl" [size]="28" />
+                <span class="grow">{{ m.username }} @if (m.isAdmin) { <span class="tag">Admin</span> }</span>
+                @if (isOnline(m._id)) { <span class="small online-label">Online</span> }
+              </li>
+            }
+          </ul>
+        }
+      </section>
+
+      <!-- Other actions -->
+      <section class="panel">
+        @if (isAdmin()) {
+          <h2>Delete group</h2>
+          <p class="muted">Only the super admin can delete a group. Send them a request.</p>
+          <button type="button" class="btn btn-danger" (click)="requestDeletion()" [disabled]="busy()">Request group deletion</button>
+        } @else {
+          <h2>Leave group</h2>
+          <p class="muted">A group admin removes you when they approve your request.</p>
+          <button type="button" class="btn btn-quiet" (click)="requestLeave()" [disabled]="busy()">Ask to leave</button>
+        }
+      </section>
+    </div>
+  }
+</div>
