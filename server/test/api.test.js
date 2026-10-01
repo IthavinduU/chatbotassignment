@@ -4,7 +4,7 @@ const { db, createApp, resetDatabase, makeClient } = require('./helpers');
 const { deleteInactiveChannels } = require('../src/jobs');
 
 let c; // test client
-let superT, groupadmin, user1, user2, dave;
+let superT, groupadmin, user1, user2, testuser1;
 let group, general;
 
 before(async () => {
@@ -14,7 +14,7 @@ before(async () => {
   groupadmin = await c.register('groupadmin');
   user1 = await c.register('user1');
   user2 = await c.register('user2', '2012-06-01'); // under 18
-  dave = await c.register('dave');
+  testuser1 = await c.register('testuser1');
 });
 
 after(() => db.close());
@@ -22,16 +22,16 @@ after(() => db.close());
 describe('Authentication', () => {
   it('registers a user without exposing the password hash', async () => {
     const res = await c.api.post('/api/auth/register')
-      .send({ username: 'erin', email: 'Erin@Test.local', password: 'secret', birthdate: '1999-03-03' });
+      .send({ username: 'testuser2', email: 'testuser2@Test.local', password: 'secret', birthdate: '1999-03-03' });
     assert.equal(res.status, 201);
     assert.ok(res.body.token);
-    assert.equal(res.body.user.email, 'erin@test.local');
+    assert.equal(res.body.user.email, 'testuser2@test.local');
     assert.equal(res.body.user.passwordHash, undefined);
   });
 
   it('rejects a duplicate email (email is the unique identifier)', async () => {
     const res = await c.api.post('/api/auth/register')
-      .send({ username: 'erin2', email: 'erin@test.local', password: 'secret', birthdate: '1999-03-03' });
+      .send({ username: 'testuser22', email: 'testuser2@test.local', password: 'secret', birthdate: '1999-03-03' });
     assert.equal(res.status, 409);
   });
 
@@ -42,9 +42,9 @@ describe('Authentication', () => {
   });
 
   it('signs in with username or email, and rejects a wrong password', async () => {
-    assert.ok(await c.login('erin', 'secret'));
-    assert.ok(await c.login('erin@test.local', 'secret'));
-    const res = await c.api.post('/api/auth/login').send({ login: 'erin', password: 'wrong' });
+    assert.ok(await c.login('testuser2', 'secret'));
+    assert.ok(await c.login('testuser2@test.local', 'secret'));
+    const res = await c.api.post('/api/auth/login').send({ login: 'testuser2', password: 'wrong' });
     assert.equal(res.status, 401);
   });
 
@@ -54,14 +54,14 @@ describe('Authentication', () => {
   });
 
   it('resets a forgotten password with a one-time link', async () => {
-    const forgot = await c.api.post('/api/auth/forgot-password').send({ email: 'erin@test.local' });
+    const forgot = await c.api.post('/api/auth/forgot-password').send({ email: 'testuser2@test.local' });
     assert.equal(forgot.status, 200);
     const token = new URL(forgot.body.devResetUrl).searchParams.get('token');
 
     const reset = await c.api.post('/api/auth/reset-password').send({ token, password: 'newpass' });
     assert.equal(reset.status, 200);
-    assert.equal(await c.login('erin', 'secret'), undefined);
-    assert.ok(await c.login('erin', 'newpass'));
+    assert.equal(await c.login('testuser2', 'secret'), undefined);
+    assert.ok(await c.login('testuser2', 'newpass'));
 
     const reuse = await c.api.post('/api/auth/reset-password').send({ token, password: 'again' });
     assert.equal(reuse.status, 400);
@@ -133,7 +133,7 @@ describe('Joining groups', () => {
     const incoming = await c.as(groupadmin.token).get('/api/requests/incoming?type=joinGroup');
     assert.equal(incoming.body.length, 1);
 
-    const notAdmin = await c.as(dave.token).post(`/api/requests/${req.body._id}/approve`);
+    const notAdmin = await c.as(testuser1.token).post(`/api/requests/${req.body._id}/approve`);
     assert.equal(notAdmin.status, 403);
 
     const ok = await c.as(groupadmin.token).post(`/api/requests/${req.body._id}/approve`);
@@ -143,8 +143,8 @@ describe('Joining groups', () => {
     assert.equal(mine.body.length, 1);
   });
 
-  it('dave and user2 join too', async () => {
-    for (const u of [dave, user2]) {
+  it('testuser1 and user2 join too', async () => {
+    for (const u of [testuser1, user2]) {
       const req = await c.as(u.token).post('/api/requests', { type: 'joinGroup', groupId: group._id });
       await c.as(groupadmin.token).post(`/api/requests/${req.body._id}/approve`);
     }
@@ -180,9 +180,9 @@ describe('Chatrooms', () => {
   it('a new member sees at most 3 messages from before they joined', async () => {
     const { col, toId } = db;
     const joinedAt = new Date(Date.now() - 60_000);
-    // Pretend erin joins now, with 5 older messages already in #general.
-    const erinT = await c.login('erin', 'newpass');
-    const erin = (await c.as(erinT).get('/api/auth/me')).body;
+    // Pretend testuser2 joins now, with 5 older messages already in #general.
+    const testuser2T = await c.login('testuser2', 'newpass');
+    const testuser2 = (await c.as(testuser2T).get('/api/auth/me')).body;
     const old = [1, 2, 3, 4, 5].map((n) => ({
       channelId: toId(general._id), groupId: toId(group._id), userId: toId(user1.user._id), username: 'user1',
       text: `old ${n}`, imageUrl: null, createdAt: new Date(joinedAt.getTime() - (6 - n) * 1000),
@@ -190,11 +190,11 @@ describe('Chatrooms', () => {
     await col.messages().insertMany(old);
     await col.groups().updateOne(
       { _id: toId(group._id) },
-      { $addToSet: { memberIds: toId(erin._id) }, $set: { [`memberSince.${erin._id}`]: joinedAt } },
+      { $addToSet: { memberIds: toId(testuser2._id) }, $set: { [`memberSince.${testuser2._id}`]: joinedAt } },
     );
     await col.messages().insertOne({ ...old[0], _id: undefined, text: 'new 1', createdAt: new Date() });
 
-    const res = await c.as(erinT).get(`/api/channels/${general._id}/messages`);
+    const res = await c.as(testuser2T).get(`/api/channels/${general._id}/messages`);
     assert.deepEqual(res.body.map((m) => m.text), ['old 3', 'old 4', 'old 5', 'new 1']);
   });
 });
@@ -210,32 +210,32 @@ describe('Moderation', () => {
   });
 
   it('a member asks to leave and the admin approves', async () => {
-    const req = await c.as(dave.token).post('/api/requests', { type: 'leaveGroup', groupId: group._id });
+    const req = await c.as(testuser1.token).post('/api/requests', { type: 'leaveGroup', groupId: group._id });
     assert.equal(req.status, 201);
     await c.as(groupadmin.token).post(`/api/requests/${req.body._id}/approve`);
-    const mine = await c.as(dave.token).get('/api/groups/mine');
+    const mine = await c.as(testuser1.token).get('/api/groups/mine');
     assert.equal(mine.body.length, 0);
   });
 
   it('a banned member is removed and cannot ask to rejoin', async () => {
-    const erinT = await c.login('erin', 'newpass');
-    const erin = (await c.as(erinT).get('/api/auth/me')).body;
-    const ban = await c.as(groupadmin.token).post(`/api/groups/${group._id}/bans`, { userId: erin._id, reason: 'Spam' });
+    const testuser2T = await c.login('testuser2', 'newpass');
+    const testuser2 = (await c.as(testuser2T).get('/api/auth/me')).body;
+    const ban = await c.as(groupadmin.token).post(`/api/groups/${group._id}/bans`, { userId: testuser2._id, reason: 'Spam' });
     assert.equal(ban.status, 201);
 
-    const rejoin = await c.as(erinT).post('/api/requests', { type: 'joinGroup', groupId: group._id });
+    const rejoin = await c.as(testuser2T).post('/api/requests', { type: 'joinGroup', groupId: group._id });
     assert.equal(rejoin.status, 403);
 
     const history = await c.as(groupadmin.token).get(`/api/groups/${group._id}/members`);
     const statuses = Object.fromEntries(history.body.history.map((m) => [m.username, m.status]));
-    assert.equal(statuses.erin, 'banned');
-    assert.equal(statuses.dave, 'past');
+    assert.equal(statuses.testuser2, 'banned');
+    assert.equal(statuses.testuser1, 'past');
     assert.equal(statuses.user1, 'current');
   });
 
   it('the super admin sees the ban in the ban log', async () => {
     const res = await c.as(superT).get('/api/admin/bans');
-    assert.ok(res.body.log.some((e) => e.type === 'member.ban' && e.details.username === 'erin'));
+    assert.ok(res.body.log.some((e) => e.type === 'member.ban' && e.details.username === 'testuser2'));
   });
 
   it('a group admin requests a promotion and the super admin approves', async () => {
@@ -250,11 +250,11 @@ describe('Moderation', () => {
   });
 
   it('hard banning a user blocks sign-in and their existing token', async () => {
-    const ban = await c.as(superT).post(`/api/admin/users/${dave.user._id}/hardban`, { reason: 'Abuse' });
+    const ban = await c.as(superT).post(`/api/admin/users/${testuser1.user._id}/hardban`, { reason: 'Abuse' });
     assert.equal(ban.status, 200);
-    const login = await c.api.post('/api/auth/login').send({ login: 'dave', password: 'secret' });
+    const login = await c.api.post('/api/auth/login').send({ login: 'testuser1', password: 'secret' });
     assert.equal(login.status, 403);
-    const old = await c.as(dave.token).get('/api/auth/me');
+    const old = await c.as(testuser1.token).get('/api/auth/me');
     assert.equal(old.status, 401);
   });
 });
