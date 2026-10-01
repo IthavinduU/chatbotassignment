@@ -1,7 +1,4 @@
-// Requests drive most management actions:
-//  - members ask their group admins (join, leave, new chatroom, delete chatroom)
-//  - group admins ask the super admin (new group, delete group, promote a member)
-// Regular users never contact super admins directly.
+
 const router = require('express').Router();
 const { col, toId } = require('../db');
 const { audit } = require('../audit');
@@ -25,9 +22,6 @@ function notifyHandlers(request, group) {
   else if (group) realtime.toUsers(group.adminIds, 'requests:changed');
 }
 
-// ---- create ----
-
-// POST /api/requests  { type, groupId?, channelId?, targetUserId?, name?, reason? }
 router.post('/', async (req, res) => {
   const { type } = req.body ?? {};
   const user = req.user;
@@ -117,14 +111,11 @@ router.post('/', async (req, res) => {
   res.status(201).json(doc);
 });
 
-// ---- read ----
 
-// GET /api/requests/mine -> the user's own requests, newest first
 router.get('/mine', async (req, res) => {
   res.json(await col.requests().find({ requesterId: req.user._id }).sort({ createdAt: -1 }).limit(100).toArray());
 });
 
-// GET /api/requests/incoming?type= -> pending requests this user can approve
 router.get('/incoming', async (req, res) => {
   const type = req.query.type;
   const query = { status: 'pending' };
@@ -141,7 +132,6 @@ router.get('/incoming', async (req, res) => {
   res.json(await col.requests().find(query).sort({ createdAt: 1 }).toArray());
 });
 
-// ---- decide ----
 
 async function loadPending(req, res, next) {
   const request = await col.requests().findOne({ _id: toId(req.params.id) });
@@ -174,7 +164,6 @@ async function finish(req, status) {
   notifyHandlers(request, req.group);
 }
 
-// POST /api/requests/:id/approve -> carries out the request
 router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
   const { request, user } = req;
   const requester = await col.users().findOne({ _id: request.requesterId });
@@ -216,18 +205,15 @@ router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
     }
   }
 
-  // deleteChannel/deleteGroup mark the request "cancelled" as a side effect; set the real outcome afterwards.
   await finish(req, 'approved');
   res.json({ ok: true });
 });
 
-// POST /api/requests/:id/reject
 router.post('/:id/reject', loadPending, requireHandler, async (req, res) => {
   await finish(req, 'rejected');
   res.json({ ok: true });
 });
 
-// DELETE /api/requests/:id -> the requester cancels their own pending request
 router.delete('/:id', loadPending, async (req, res) => {
   if (String(req.request.requesterId) !== String(req.user._id)) throw new HttpError(403, 'You can only cancel your own requests');
   await col.requests().updateOne({ _id: req.request._id }, { $set: { status: 'cancelled' } });
