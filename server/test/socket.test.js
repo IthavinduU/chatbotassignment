@@ -5,7 +5,7 @@ const { io: connect } = require('socket.io-client');
 const { db, createApp, resetDatabase, makeClient } = require('./helpers');
 const { attachSocket } = require('../src/socket');
 
-let server, url, c, superT, alice, bob, outsider, group, general;
+let server, url, c, superT, groupadmin, user1, outsider, group, general;
 const sockets = [];
 
 function open(token) {
@@ -29,16 +29,16 @@ before(async () => {
 
   c = makeClient(app);
   superT = await c.login('super', '123');
-  alice = await c.register('alice');
-  bob = await c.register('bob');
+  groupadmin = await c.register('groupadmin');
+  user1 = await c.register('user1');
   outsider = await c.register('outsider');
-  await c.as(superT).patch(`/api/admin/users/${alice.user._id}/role`, { role: 'groupAdmin' });
-  const req = await c.as(alice.token).post('/api/requests', { type: 'createGroup', name: 'Live' });
+  await c.as(superT).patch(`/api/admin/users/${groupadmin.user._id}/role`, { role: 'groupAdmin' });
+  const req = await c.as(groupadmin.token).post('/api/requests', { type: 'createGroup', name: 'Live' });
   await c.as(superT).post(`/api/requests/${req.body._id}/approve`);
-  group = (await c.as(alice.token).get('/api/groups/mine')).body[0];
+  group = (await c.as(groupadmin.token).get('/api/groups/mine')).body[0];
   general = group.channels[0];
-  const join = await c.as(bob.token).post('/api/requests', { type: 'joinGroup', groupId: group._id });
-  await c.as(alice.token).post(`/api/requests/${join.body._id}/approve`);
+  const join = await c.as(user1.token).post('/api/requests', { type: 'joinGroup', groupId: group._id });
+  await c.as(groupadmin.token).post(`/api/requests/${join.body._id}/approve`);
 });
 
 after(async () => {
@@ -53,13 +53,13 @@ describe('Real-time chat (Socket.io)', () => {
   });
 
   it('notifies people in a chatroom when someone new joins it', async () => {
-    const a = await open(alice.token);
+    const a = await open(groupadmin.token);
     assert.deepEqual(await emit(a, 'room:join', { channelId: general._id }), { ok: true });
 
-    const b = await open(bob.token);
+    const b = await open(user1.token);
     const toast = once(a, 'room:userJoined');
     await emit(b, 'room:join', { channelId: general._id });
-    assert.equal((await toast).username, 'bob');
+    assert.equal((await toast).username, 'user1');
   });
 
   it('delivers a message to everyone in the chatroom and saves it', async () => {
@@ -69,9 +69,9 @@ describe('Real-time chat (Socket.io)', () => {
     assert.equal(ack.ok, true);
     const msg = await received;
     assert.equal(msg.text, 'Hello live');
-    assert.equal(msg.username, 'bob');
+    assert.equal(msg.username, 'user1');
 
-    const history = await c.as(alice.token).get(`/api/channels/${general._id}/messages`);
+    const history = await c.as(groupadmin.token).get(`/api/channels/${general._id}/messages`);
     assert.ok(history.body.some((m) => m.text === 'Hello live'));
   });
 
@@ -85,10 +85,10 @@ describe('Real-time chat (Socket.io)', () => {
 
   it('reports who is online', async () => {
     // Listen before connecting: the server sends the online list straight after connection.
-    const s = connect(url, { auth: { token: bob.token }, transports: ['websocket'], forceNew: true });
+    const s = connect(url, { auth: { token: user1.token }, transports: ['websocket'], forceNew: true });
     sockets.push(s);
     const online = await once(s, 'presence');
-    assert.ok(online.includes(String(alice.user._id)));
-    assert.ok(online.includes(String(bob.user._id)));
+    assert.ok(online.includes(String(groupadmin.user._id)));
+    assert.ok(online.includes(String(user1.user._id)));
   });
 });

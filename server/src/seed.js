@@ -26,9 +26,9 @@ async function seed({ demo = true } = {}) {
   console.log('Created super admin: super / 123');
   if (!demo) return true;
 
-  const alice = await makeUser('alice', 'groupAdmin', '1995-05-12');
-  const bob = await makeUser('bob', 'user', '2001-09-03');
-  const carol = await makeUser('carol', 'user', '2010-02-20'); // under 18, useful for testing age limits
+  const groupadmin = await makeUser('groupadmin', 'groupAdmin', '1995-05-12');
+  const user1 = await makeUser('user1', 'user', '2001-09-03');
+  const user2 = await makeUser('user2', 'user', '2010-02-20'); // under 18, useful for testing age limits
 
   const earlier = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
   const group = {
@@ -36,9 +36,9 @@ async function seed({ demo = true } = {}) {
     nameKey: 'study group',
     theme: 'blue',
     ageLimit: null,
-    adminIds: [alice._id],
-    memberIds: [alice._id, bob._id],
-    memberSince: { [String(alice._id)]: earlier, [String(bob._id)]: earlier },
+    adminIds: [groupadmin._id],
+    memberIds: [groupadmin._id, user1._id],
+    memberSince: { [String(groupadmin._id)]: earlier, [String(user1._id)]: earlier },
     pastMemberIds: [],
     bannedIds: [],
     createdBy: superAdmin._id,
@@ -52,8 +52,8 @@ async function seed({ demo = true } = {}) {
     name: 'Gaming',
     nameKey: 'gaming',
     theme: 'red',
-    memberIds: [alice._id],
-    memberSince: { [String(alice._id)]: earlier },
+    memberIds: [groupadmin._id],
+    memberSince: { [String(groupadmin._id)]: earlier },
   };
   delete second._id;
   second._id = (await col.groups().insertOne(second)).insertedId;
@@ -62,15 +62,15 @@ async function seed({ demo = true } = {}) {
     { groupId: group._id, name: 'general' },
     { groupId: group._id, name: 'assignment-help' },
     { groupId: second._id, name: 'general' },
-  ].map((c) => ({ ...c, createdBy: alice._id, createdAt: earlier, lastActivityAt: new Date() }));
+  ].map((c) => ({ ...c, createdBy: groupadmin._id, createdAt: earlier, lastActivityAt: new Date() }));
   const { insertedIds } = await col.channels().insertMany(channels);
 
   const lines = [
-    [alice, 'Welcome to the study group!'],
-    [bob, 'Thanks! Has anyone started the assignment?'],
-    [alice, 'Yes, the brief is on the course site.'],
-    [bob, 'I will push my part tonight.'],
-    [alice, 'Sounds good.'],
+    [groupadmin, 'Welcome to the study group!'],
+    [user1, 'Thanks! Has anyone started the assignment?'],
+    [groupadmin, 'Yes, the brief is on the course site.'],
+    [user1, 'I will push my part tonight.'],
+    [groupadmin, 'Sounds good.'],
   ];
   await col.messages().insertMany(lines.map(([u, text], i) => ({
     channelId: insertedIds[0],
@@ -85,12 +85,12 @@ async function seed({ demo = true } = {}) {
 
   await col.requests().insertOne({
     type: 'joinGroup', status: 'pending',
-    requesterId: bob._id, requesterName: 'bob',
+    requesterId: user1._id, requesterName: 'user1',
     groupId: second._id, groupName: 'Gaming',
     reason: null, createdAt: new Date(),
   });
 
-  console.log('Created demo users alice, bob and carol (password 123) and two groups');
+  console.log('Created demo users groupadmin, user1 and user2 (password 123) and two groups');
   return true;
 }
 
