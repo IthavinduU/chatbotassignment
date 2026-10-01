@@ -1,0 +1,115 @@
+<div class="shell" [attr.data-theme]="theme()" [class.sidebar-open]="sidebarOpen()">
+  <header class="mobile-bar">
+    <button type="button" class="icon-btn" (click)="sidebarOpen.set(!sidebarOpen())"
+            [attr.aria-expanded]="sidebarOpen()" aria-label="Show navigation">☰</button>
+    <span class="mobile-title">{{ selected()?.name ?? 'fabulari' }}</span>
+  </header>
+
+  <aside class="sidebar" aria-label="Navigation">
+    <div class="side-top">
+      <div class="side-brand">
+        <app-logo [small]="true" />
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn" (click)="menuOpen.set(!menuOpen())"
+                  [attr.aria-expanded]="menuOpen()" aria-haspopup="true" aria-label="Menu">☰</button>
+          @if (menuOpen()) {
+            <nav class="menu menu-down" aria-label="Menu">
+              <a routerLink="/app">All chatrooms</a>
+              <a routerLink="/app/discover">Find groups</a>
+              <a routerLink="/app/requests">
+                My pending requests
+                @if (pendingMine()) { <span class="count">{{ pendingMine() }}</span> }
+              </a>
+              <a routerLink="/app/profile">Profile</a>
+              <button type="button" (click)="signOut()">Sign out</button>
+            </nav>
+          }
+        </div>
+      </div>
+
+      @if (groups.groups().length) {
+        <label class="field">
+          <span>Group</span>
+          <select (change)="selectGroup($any($event.target).value)">
+            @for (g of groups.groups(); track g._id) {
+              <option [value]="g._id" [selected]="g._id === groups.selectedId()">{{ g.name }}</option>
+            }
+          </select>
+        </label>
+      }
+    </div>
+
+    <nav class="rooms" aria-label="Chatrooms">
+      @if (selected(); as g) {
+        <p class="side-label">Chatrooms</p>
+        <ul>
+          @for (c of g.channels; track c._id) {
+            <li><a [routerLink]="['/app/groups', g._id, 'rooms', c._id]" routerLinkActive="active"># {{ c.name }}</a></li>
+          } @empty {
+            <li class="muted small">No chatrooms yet.</li>
+          }
+        </ul>
+        <a class="side-link" [routerLink]="['/app/groups', g._id, 'info']" routerLinkActive="active">
+          {{ groups.isAdmin(g) ? 'Manage group' : 'Group info' }}
+        </a>
+      } @else if (groups.loaded()) {
+        <p class="muted small">You're not in a group yet. <a routerLink="/app/discover">Find a group</a> to join.</p>
+      }
+    </nav>
+
+    <div class="side-bottom">
+      @if (adminGroups().length) {
+        <div class="menu-wrap">
+          <button type="button" class="btn btn-quiet btn-block admin-toggle" (click)="adminMenuOpen.set(!adminMenuOpen())"
+                  [attr.aria-expanded]="adminMenuOpen()" aria-haspopup="true">
+            <span>Requests to review</span>
+            @if (requests.incoming().length) { <span class="count">{{ requests.incoming().length }}</span> }
+          </button>
+          @if (adminMenuOpen()) {
+            <nav class="menu menu-up" aria-label="Requests to review">
+              <a routerLink="/app/incoming" [queryParams]="{ type: 'joinGroup' }">Join requests <span class="count" [class.count-zero]="!counts().joinGroup">{{ counts().joinGroup ?? 0 }}</span></a>
+              <a routerLink="/app/incoming" [queryParams]="{ type: 'createChannel' }">New chatroom requests <span class="count" [class.count-zero]="!counts().createChannel">{{ counts().createChannel ?? 0 }}</span></a>
+              <a routerLink="/app/incoming" [queryParams]="{ type: 'deleteChannel' }">Chatroom deletion requests <span class="count" [class.count-zero]="!counts().deleteChannel">{{ counts().deleteChannel ?? 0 }}</span></a>
+              <a routerLink="/app/incoming" [queryParams]="{ type: 'leaveGroup' }">Leave requests <span class="count" [class.count-zero]="!counts().leaveGroup">{{ counts().leaveGroup ?? 0 }}</span></a>
+              <a routerLink="/app/incoming">All requests</a>
+            </nav>
+          }
+        </div>
+      }
+
+      @if (auth.user(); as me) {
+        <a class="profile-bar" routerLink="/app/profile">
+          <app-avatar [username]="me.username" [avatarUrl]="me.avatarUrl" [size]="36" />
+          <span class="profile-text">
+            <strong>{{ me.username }}</strong>
+            <small>{{ roleLabels[me.role] }}</small>
+          </span>
+        </a>
+      }
+    </div>
+  </aside>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+
+  <aside class="online" aria-label="Online members">
+    @if (selected(); as g) {
+      <p class="side-label">Online in {{ g.name }} ({{ groups.onlineMembers().length }})</p>
+      <ul>
+        @for (m of groups.onlineMembers(); track m._id) {
+          <li>
+            <span class="dot" aria-hidden="true"></span>
+            <app-avatar [username]="m.username" [avatarUrl]="m.avatarUrl" [size]="26" />
+            <span class="grow">{{ m.username }}</span>
+            @if (m.isAdmin) { <span class="tag">Admin</span> }
+          </li>
+        } @empty {
+          <li class="muted small">No one is online.</li>
+        }
+      </ul>
+    }
+  </aside>
+
+  <div class="scrim" (click)="sidebarOpen.set(false)" aria-hidden="true"></div>
+</div>
