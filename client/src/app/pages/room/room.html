@@ -1,0 +1,79 @@
+@if (!groups.loaded()) {
+  <p class="page muted">Loading…</p>
+} @else if (!channel()) {
+  <div class="page">
+    <section class="panel">
+      <h1>Chatroom not found</h1>
+      <p class="muted">It may have been deleted, or you're not a member of this group.</p>
+    </section>
+  </div>
+} @else {
+  <section class="room">
+    <header class="room-head">
+      <div class="room-title">
+        <h1># {{ channel()!.name }}</h1>
+        <span class="muted small">{{ group()!.name }}</span>
+      </div>
+      <details class="online-mobile">
+        <summary>{{ groups.onlineMembers().length }} online</summary>
+        <ul>
+          @for (m of groups.onlineMembers(); track m._id) { <li>{{ m.username }}</li> }
+        </ul>
+      </details>
+      @if (isAdmin()) {
+        <button type="button" class="btn btn-quiet btn-sm" (click)="deleteRoom()">Delete chatroom</button>
+      } @else {
+        <button type="button" class="btn btn-quiet btn-sm" (click)="requestDeletion()">Request deletion</button>
+      }
+    </header>
+
+    <div class="log" #log role="log" aria-live="polite" aria-label="Messages">
+      @if (loading()) {
+        <p class="muted center">Loading messages…</p>
+      }
+      @for (m of messages(); track m._id) {
+        <article class="msg" [class.mine]="isMine(m)">
+          <app-avatar [username]="m.username" [avatarUrl]="m.avatarUrl" [size]="34" />
+          <div class="msg-body">
+            <header class="msg-meta">
+              <strong>{{ isMine(m) ? 'You' : m.username }}</strong>
+              <time [attr.datetime]="m.createdAt">{{ m.createdAt | date: 'MMM d, h:mm a' }}</time>
+            </header>
+            <div class="bubble">
+              @if (m.imageUrl) {
+                <a [href]="fileUrl(m.imageUrl)" target="_blank" rel="noopener">
+                  <img [src]="fileUrl(m.imageUrl)" [alt]="'Image from ' + m.username" />
+                </a>
+              }
+              @if (m.text) { <p>{{ m.text }}</p> }
+            </div>
+          </div>
+        </article>
+      } @empty {
+        @if (!loading()) { <p class="muted center">No messages yet. Say hello!</p> }
+      }
+    </div>
+
+    @if (error()) { <p class="form-error" role="alert">{{ error() }}</p> }
+
+    <form class="composer" (ngSubmit)="send()">
+      @if (preview()) {
+        <div class="attachment">
+          <img [src]="preview()" alt="Image to send" />
+          <button type="button" class="btn btn-quiet btn-sm" (click)="clearImage()">Remove image</button>
+        </div>
+      }
+      <div class="composer-row">
+        <label class="btn btn-quiet" title="Attach an image">
+          <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="visually-hidden" (change)="pickImage($event)" />
+          Image
+        </label>
+        <label class="visually-hidden" for="draft">Message</label>
+        <textarea id="draft" name="draft" rows="1" [(ngModel)]="draft" (keydown)="onKeydown($event)" placeholder="Write a message" maxlength="2000"></textarea>
+        <button type="submit" class="btn btn-primary" [disabled]="sending() || (!draft.trim() && !image())">
+          {{ sending() ? 'Sending…' : 'Send' }}
+        </button>
+      </div>
+    </form>
+  </section>
+}
