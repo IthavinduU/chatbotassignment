@@ -1,0 +1,173 @@
+<div class="admin" data-theme="blue">
+  <header class="admin-bar">
+    <app-logo [small]="true" />
+    <span class="muted">Super admin</span>
+    <span class="spacer"></span>
+    <span><strong>{{ auth.user()?.username }}</strong></span>
+    <button type="button" class="btn btn-quiet btn-sm" (click)="signOut()">Sign out</button>
+  </header>
+
+  <nav class="tabs" aria-label="Admin sections">
+    <button type="button" [class.active]="tab() === 'requests'" (click)="show('requests')">
+      Requests @if (requests.incoming().length) { <span class="count">{{ requests.incoming().length }}</span> }
+    </button>
+    <button type="button" [class.active]="tab() === 'users'" (click)="show('users')">Users</button>
+    <button type="button" [class.active]="tab() === 'bans'" (click)="show('bans')">Ban log</button>
+    <button type="button" [class.active]="tab() === 'audit'" (click)="show('audit')">Audit log</button>
+  </nav>
+
+  <main class="page">
+    @switch (tab()) {
+      @case ('requests') {
+        <h1>Requests from group admins</h1>
+        <ul class="rows">
+          @for (r of requests.incoming(); track r._id) {
+            <li class="row">
+              <div class="grow">
+                <strong>{{ labels[r.type] }}</strong>
+                <div>{{ describe(r) }}</div>
+                <div class="muted small">{{ r.createdAt | date: 'MMM d, h:mm a' }}</div>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" (click)="decide(r, true)" [disabled]="busy()">Approve</button>
+              <button type="button" class="btn btn-quiet btn-sm" (click)="decide(r, false)" [disabled]="busy()">Reject</button>
+            </li>
+          } @empty {
+            <li class="row muted">No requests waiting.</li>
+          }
+        </ul>
+      }
+
+      @case ('users') {
+        <h1>Users</h1>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th scope="col">Username</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              @for (u of users(); track u._id) {
+                <tr [class.banned]="u.hardBanned">
+                  <th scope="row">{{ u.username }}</th>
+                  <td>{{ u.email }}</td>
+                  <td>
+                    @if (u.role === 'superAdmin') {
+                      {{ roleLabels[u.role] }}
+                    } @else {
+                      <select [attr.aria-label]="'Role for ' + u.username" (change)="changeRole(u, $any($event.target).value)" [disabled]="busy()">
+                        <option value="user" [selected]="u.role === 'user'">Member</option>
+                        <option value="groupAdmin" [selected]="u.role === 'groupAdmin'">Group admin</option>
+                      </select>
+                    }
+                  </td>
+                  <td>{{ u.hardBanned ? 'Banned' : 'Active' }}</td>
+                  <td class="actions">
+                    @if (u.role !== 'superAdmin') {
+                      @if (u.hardBanned) {
+                        <button type="button" class="btn btn-quiet btn-sm" (click)="liftBan(u)" [disabled]="busy()">Lift ban</button>
+                      } @else {
+                        <button type="button" class="btn btn-danger btn-sm" (click)="hardBan(u)" [disabled]="busy()">Hard ban</button>
+                      }
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      @case ('bans') {
+        <h1>Ban log</h1>
+        <section class="panel">
+          <h2>Hard-banned accounts</h2>
+          <ul class="plain">
+            @for (u of hardBanned(); track u._id) {
+              <li><strong class="danger">{{ u.username }}</strong> — {{ u.hardBanReason }} <span class="muted small">({{ u.hardBannedAt | date: 'mediumDate' }})</span></li>
+            } @empty {
+              <li class="muted">No accounts are banned.</li>
+            }
+          </ul>
+        </section>
+        <section class="panel">
+          <h2>All bans</h2>
+          <ul class="plain">
+            @for (e of banLog(); track e._id) {
+              <li>
+                <span class="muted small">{{ e.createdAt | date: 'MMM d, y, h:mm a' }}</span><br />
+                @switch (e.type) {
+                  @case ('member.ban') { <strong class="danger">{{ e.details['username'] }}</strong> was banned from {{ e.details['groupName'] }} by {{ e.actorName }}. Reason: {{ e.details['reason'] }} }
+                  @case ('user.hardban') { <strong class="danger">{{ e.details['username'] }}</strong> was hard banned by {{ e.actorName }}. Reason: {{ e.details['reason'] }} }
+                  @case ('user.unban') { {{ e.details['username'] }}'s hard ban was lifted by {{ e.actorName }} }
+                }
+              </li>
+            } @empty {
+              <li class="muted">No bans yet.</li>
+            }
+          </ul>
+        </section>
+      }
+
+      @case ('audit') {
+        <h1>Audit log</h1>
+        <form class="panel filters" (ngSubmit)="loadAudit()">
+          <label class="field">
+            <span>Type</span>
+            <select name="type" [(ngModel)]="auditType">
+              <option value="">All types</option>
+              @for (t of auditTypes(); track t) { <option [value]="t">{{ t }}</option> }
+            </select>
+          </label>
+          <label class="field">
+            <span>Order</span>
+            <select name="order" [(ngModel)]="auditOrder">
+              <option value="desc">Newest first</option>
+              <option value="asc">Oldest first</option>
+            </select>
+          </label>
+          <label class="field"><span>From</span><input type="date" name="from" [(ngModel)]="auditFrom" /></label>
+          <label class="field"><span>To</span><input type="date" name="to" [(ngModel)]="auditTo" /></label>
+          <label class="check"><input type="checkbox" [checked]="groupByType()" (change)="groupByType.set(!groupByType())" /> Group by type</label>
+          <button class="btn btn-primary">Apply</button>
+        </form>
+
+        @if (groupByType()) {
+          @for (g of auditGroups(); track g[0]) {
+            <section class="panel">
+              <h2>{{ g[0] }} ({{ g[1].length }})</h2>
+              <ul class="plain">
+                @for (e of g[1]; track e._id) {
+                  <li>
+                    <span class="muted small">{{ e.createdAt | date: 'MMM d, y, h:mm a' }}</span> by {{ e.actorName }}<br />
+                    @for (d of e.details | keyvalue; track d.key) { <span class="small"><b>{{ d.key }}:</b> {{ d.value }} </span> }
+                  </li>
+                }
+              </ul>
+            </section>
+          } @empty {
+            <p class="muted">No entries match.</p>
+          }
+        } @else {
+          <section class="panel">
+            <table class="table">
+              <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">By</th><th scope="col">Details</th></tr></thead>
+              <tbody>
+                @for (e of auditEntries(); track e._id) {
+                  <tr>
+                    <td class="nowrap">{{ e.createdAt | date: 'MMM d, y, h:mm a' }}</td>
+                    <td><code>{{ e.type }}</code></td>
+                    <td>{{ e.actorName }}</td>
+                    <td class="details-cell">
+                      @for (d of e.details | keyvalue; track d.key) { <span><b>{{ d.key }}:</b> {{ d.value }}</span> }
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="4" class="muted">No entries match.</td></tr>
+                }
+              </tbody>
+            </table>
+          </section>
+        }
+      }
+    }
+  </main>
+</div>

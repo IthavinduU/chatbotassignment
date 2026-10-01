@@ -1,0 +1,17 @@
+.admin { min-height: 100dvh; background: var(--bg); overflow-y: auto; height: 100dvh; }
+.admin-bar { display: flex; align-items: center; gap: 1rem; padding: 0.75rem clamp(1rem, 3vw, 2rem); background: var(--surface); border-bottom: 1px solid var(--line); border-top: 5px solid var(--accent); }
+.spacer { flex: 1; }
+.tabs { display: flex; gap: 0.25rem; padding: 0 clamp(1rem, 3vw, 2rem); background: var(--surface); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { display: flex; gap: 0.4rem; align-items: center; padding: 0.8rem 1rem; border: 0; border-bottom: 3px solid transparent; background: none; font: inherit; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+.grow { flex: 1; }
+.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.danger { color: var(--danger); }
+tr.banned th { color: var(--danger); }
+.actions { text-align: right; }
+.nowrap { white-space: nowrap; }
+.details-cell span { display: inline-block; margin-right: 0.75rem; font-size: 0.85rem; }
+.filters { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+.filters .field { min-width: 150px; }
+.check { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; padding-bottom: 0.6rem; }
+.check input { width: auto; }
