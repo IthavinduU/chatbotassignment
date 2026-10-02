@@ -27,7 +27,7 @@ test.describe('Signing in', () => {
     await page.goto('/admin');
     await expect(page).toHaveURL(/\/app/);
 
-    // The super admin goes straight to the admin console.
+    // The super admin goes to the admin console.
     const superPage = await (await browser.newContext()).newPage();
     await signIn(superPage, 'super');
     await expect(superPage).toHaveURL(/\/admin/);

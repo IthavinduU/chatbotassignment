@@ -1,7 +1,6 @@
 import { expect, Page } from '@playwright/test';
 export const DEMO_PASSWORD = '123';
 
-/** Signs in through the sign-in page and waits until the app has moved on from it. */
 export async function signIn(page: Page, username: string, password = DEMO_PASSWORD): Promise<void> {
   await page.goto('/login');
   await page.locator('input[formcontrolname=login]').fill(username);
@@ -10,7 +9,6 @@ export async function signIn(page: Page, username: string, password = DEMO_PASSW
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** Opens a chatroom from the front page and waits for its messages to load. */
 export async function openRoom(page: Page, groupName: string, roomName: string): Promise<void> {
   await page.goto('/app');
   await page.locator('section.group-card', { hasText: groupName }).getByRole('link', { name: `# ${roomName}` }).click();
@@ -18,7 +16,6 @@ export async function openRoom(page: Page, groupName: string, roomName: string):
   await expect(page.locator('.bubble').first()).toBeVisible();
 }
 
-/** A short value that is different on every run, so tests can be repeated. */
 export function uniqueStamp(): string {
   return Date.now().toString().slice(-8);
 }

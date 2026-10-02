@@ -1,111 +1,110 @@
-const { Server } = require("socket.io");
-const config = require("./config");
-const { col, toId } = require("./db");
-const { userFromToken } = require("./auth");
-const realtime = require("./realtime");
-const { isMember } = require("./utils");
+const { Server } = require('socket.io');
+const config = require('./config');
+const { col, toId } = require('./db');
+const { userFromToken } = require('./auth');
+const realtime = require('./realtime');
+const { isMember } = require('./utils');
 
 function attachSocket(httpServer) {
   const io = new Server(httpServer, { cors: { origin: config.clientOrigin } });
   realtime.setIo(io);
 
+  // Every socket must present a valid token when it connects.
   io.use(async (socket, next) => {
     const user = await userFromToken(socket.handshake.auth?.token);
-    if (!user) return next(new Error("unauthorized"));
+    if (!user) return next(new Error('unauthorized'));
     socket.data.user = user;
     next();
   });
 
-  io.on("connection", (socket) => {
+  io.on('connection', (socket) => {
     const user = socket.data.user;
     const uid = String(user._id);
     socket.join(`user:${uid}`);
-    if (user.role === "superAdmin") socket.join("superadmins");
+    if (user.role === 'superAdmin') socket.join('superadmins');
 
     realtime.markOnline(uid);
     realtime.broadcastPresence();
 
-    const reply = (ack, body) => typeof ack === "function" && ack(body);
+    const reply = (ack, body) => typeof ack === 'function' && ack(body);
 
+    /** Tells everyone else in a chatroom room that this user has left it. */
+    function announceLeave(room) {
+      socket.to(room).emit('room:userLeft', { channelId: room.slice('channel:'.length), username: user.username });
+    }
+
+    /** Finds a chatroom and checks this user is a member of its group. */
     async function channelForMember(channelId) {
       const channel = await col.channels().findOne({ _id: toId(channelId) });
-      if (!channel) return { error: "Chatroom not found" };
+      if (!channel) return { error: 'Chatroom not found' };
       const group = await col.groups().findOne({ _id: channel.groupId });
-      if (!group || !isMember(group, user._id))
-        return { error: "You are not a member of this group" };
+      if (!group || !isMember(group, user._id)) return { error: 'You are not a member of this group' };
       return { channel, group };
     }
 
-    socket.on("room:join", async ({ channelId } = {}, ack) => {
+    socket.on('room:join', async ({ channelId } = {}, ack) => {
       const { channel, error } = await channelForMember(channelId);
       if (error) return reply(ack, { ok: false, error });
 
       const room = `channel:${channel._id}`;
       const alreadyIn = socket.rooms.has(room);
-      for (const r of socket.rooms)
-        if (r.startsWith("channel:") && r !== room) socket.leave(r);
+      for (const r of socket.rooms) {
+        if (r.startsWith('channel:') && r !== room) {
+          announceLeave(r);
+          socket.leave(r);
+        }
+      }
       socket.join(room);
       reply(ack, { ok: true });
 
-      if (!alreadyIn)
-        socket
-          .to(room)
-          .emit("room:userJoined", {
-            channelId: String(channel._id),
-            username: user.username,
-          });
+      if (!alreadyIn) socket.to(room).emit('room:userJoined', { channelId: String(channel._id), username: user.username });
     });
 
-    socket.on("room:leave", ({ channelId } = {}) =>
-      socket.leave(`channel:${channelId}`),
-    );
+    socket.on('room:leave', ({ channelId } = {}) => {
+      const room = `channel:${channelId}`;
+      if (!socket.rooms.has(room)) return;
+      announceLeave(room);
+      socket.leave(room);
+    });
 
-    socket.on(
-      "message:send",
-      async ({ channelId, text, imageUrl } = {}, ack) => {
-        const cleanText =
-          typeof text === "string" ? text.trim().slice(0, 2000) : "";
-        const cleanImage =
-          typeof imageUrl === "string" && imageUrl.startsWith("/uploads/")
-            ? imageUrl
-            : null;
-        if (!cleanText && !cleanImage)
-          return reply(ack, { ok: false, error: "Message is empty" });
+    socket.on('message:send', async ({ channelId, text, imageUrl } = {}, ack) => {
+      const cleanText = typeof text === 'string' ? text.trim().slice(0, 2000) : '';
+      const cleanImage = typeof imageUrl === 'string' && imageUrl.startsWith('/uploads/') ? imageUrl : null;
+      if (!cleanText && !cleanImage) return reply(ack, { ok: false, error: 'Message is empty' });
 
-        const { channel, group, error } = await channelForMember(channelId);
-        if (error) return reply(ack, { ok: false, error });
+      const { channel, group, error } = await channelForMember(channelId);
+      if (error) return reply(ack, { ok: false, error });
 
-        const sender = await col.users().findOne({ _id: user._id });
-        const message = {
-          channelId: channel._id,
-          groupId: group._id,
-          userId: user._id,
-          username: sender.username,
-          avatarUrl: sender.avatarUrl ?? null,
-          text: cleanText || null,
-          imageUrl: cleanImage,
-          createdAt: new Date(),
-        };
-        const { insertedId } = await col.messages().insertOne(message);
-        message._id = insertedId;
-        await col
-          .channels()
-          .updateOne(
-            { _id: channel._id },
-            { $set: { lastActivityAt: message.createdAt } },
-          );
+      const sender = await col.users().findOne({ _id: user._id });
+      const message = {
+        channelId: channel._id,
+        groupId: group._id,
+        userId: user._id,
+        username: sender.username,
+        avatarUrl: sender.avatarUrl ?? null,
+        text: cleanText || null,
+        imageUrl: cleanImage,
+        createdAt: new Date(),
+      };
+      const { insertedId } = await col.messages().insertOne(message);
+      message._id = insertedId;
+      await col.channels().updateOne({ _id: channel._id }, { $set: { lastActivityAt: message.createdAt } });
 
-        io.to(`channel:${channel._id}`).emit("message:new", message);
-        reply(ack, { ok: true });
-      },
-    );
+      io.to(`channel:${channel._id}`).emit('message:new', message);
+      reply(ack, { ok: true });
+    });
 
-    socket.on("disconnect", () => {
+    // "disconnecting" fires while the socket is still in its rooms, so we can announce the leave.
+    socket.on('disconnecting', () => {
+      for (const r of socket.rooms) if (r.startsWith('channel:')) announceLeave(r);
+    });
+
+    socket.on('disconnect', () => {
       realtime.markOffline(uid);
       realtime.broadcastPresence();
     });
 
-    socket.emit("presence", [...realtime.onlineCounts.keys()]);
+    socket.emit('presence', [...realtime.onlineCounts.keys()]);
   });
 
   return io;

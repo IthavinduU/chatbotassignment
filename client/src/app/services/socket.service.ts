@@ -12,7 +12,12 @@ interface Ack {
   error?: string;
 }
 
-/** One Socket.io connection per signed-in user. Connects and disconnects automatically with the session. */
+/** A user entering or leaving a chatroom. */
+export interface RoomPresenceEvent {
+  channelId: string;
+  username: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SocketService {
   private readonly auth = inject(AuthService);
@@ -26,7 +31,8 @@ export class SocketService {
   readonly online = signal<Set<string>>(new Set());
 
   readonly messages$ = new Subject<Message>();
-  readonly userJoined$ = new Subject<{ channelId: string; username: string }>();
+  readonly userJoined$ = new Subject<RoomPresenceEvent>();
+  readonly userLeft$ = new Subject<RoomPresenceEvent>();
   readonly roomDeleted$ = new Subject<{ channelId: string }>();
   readonly groupsChanged$ = new Subject<void>();
   readonly requestsChanged$ = new Subject<void>();
@@ -39,20 +45,24 @@ export class SocketService {
     });
   }
 
+  /** Opens a chatroom so this user receives its live messages. */
   joinRoom(channelId: string): Promise<Ack> {
     this.currentRoom = channelId;
     return this.emit('room:join', { channelId });
   }
 
+  /** Closes a chatroom; the others in it are told this user left. */
   leaveRoom(channelId: string): void {
     if (this.currentRoom === channelId) this.currentRoom = null;
     this.socket?.emit('room:leave', { channelId });
   }
 
+  /** Sends a text and/or image message to a chatroom. */
   sendMessage(channelId: string, text: string | null, imageUrl: string | null): Promise<Ack> {
     return this.emit('message:send', { channelId, text, imageUrl });
   }
 
+  /** Emits an event and waits up to 5 seconds for the server's acknowledgement. */
   private emit(event: string, data: unknown): Promise<Ack> {
     return new Promise((resolve) => {
       if (!this.socket?.connected) return resolve({ ok: false, error: 'Not connected to the chat server' });
@@ -75,7 +85,8 @@ export class SocketService {
     s.on('presence', (ids: string[]) => this.online.set(new Set(ids)));
 
     s.on('message:new', (m: Message) => this.messages$.next(m));
-    s.on('room:userJoined', (e) => this.userJoined$.next(e));
+    s.on('room:userJoined', (e: RoomPresenceEvent) => this.userJoined$.next(e));
+    s.on('room:userLeft', (e: RoomPresenceEvent) => this.userLeft$.next(e));
     s.on('room:deleted', (e) => this.roomDeleted$.next(e));
     s.on('groups:changed', () => this.groupsChanged$.next());
     s.on('requests:changed', () => this.requestsChanged$.next());
@@ -88,6 +99,7 @@ export class SocketService {
     });
   }
 
+  /** Closes the socket and clears connection state. */
   private disconnect(): void {
     this.socket?.removeAllListeners();
     this.socket?.disconnect();
