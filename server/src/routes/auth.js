@@ -10,46 +10,91 @@ const { HttpError, publicUser } = require('../utils');
 
 const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Hashes a reset token so the database never holds the token itself. */
 const hashToken = (t) => createHash('sha256').update(t).digest('hex');
 
+/** Rejects passwords shorter than 3 characters. */
 function validatePassword(password) {
   if (typeof password !== 'string' || password.length < 3) throw new HttpError(400, 'Password must be at least 3 characters');
 }
 
-// POST /api/auth/register  (multipart: username, email, password, birthdate, avatar?)
+/** True when nobody has set up the super admin yet (a brand new install). */
+async function needsBootstrap() {
+  return (await col.users().countDocuments({ role: 'superAdmin' })) === 0;
+}
+
+/** Makes a free username from an email address, e.g. "user1@com.au" -> "user1" (or "user12" if taken). */
+async function usernameFromEmail(email) {
+  let base = email.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 20);
+  if (base.length < 3) base = `user${base}`;
+  let candidate = base;
+  for (let n = 2; await col.users().findOne({ usernameKey: candidate.toLowerCase() }); n++) {
+    candidate = `${base.slice(0, 20 - String(n).length)}${n}`;
+  }
+  return candidate;
+}
+
+/** Checks sign-up details and returns them cleaned. The username is optional: it can come from the email. */
+async function validateNewUser(body) {
+  const email = String(body.email ?? '').trim().toLowerCase();
+  const birthdate = new Date(body.birthdate);
+  if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
+  validatePassword(body.password);
+  if (Number.isNaN(birthdate.getTime()) || birthdate > new Date()) throw new HttpError(400, 'Enter a valid date of birth');
+  if (await col.users().findOne({ email })) throw new HttpError(409, 'An account with that email already exists');
+
+  let username = String(body.username ?? '').trim();
+  if (!username) {
+    username = await usernameFromEmail(email);
+  } else {
+    if (!USERNAME_RE.test(username)) throw new HttpError(400, 'Username must be 3–20 characters: letters, numbers, dots, dashes or underscores');
+    if (await col.users().findOne({ usernameKey: username.toLowerCase() })) throw new HttpError(409, `The username "${username}" is taken`);
+  }
+  return { username, email, birthdate };
+}
+
+/** Saves a new user with a hashed password and returns it. */
+async function createUser({ username, email, birthdate }, password, role, avatarUrl = null) {
+  const user = {
+    username,
+    usernameKey: username.toLowerCase(),
+    email,
+    passwordHash: await bcrypt.hash(password, 10),
+    birthdate,
+    avatarUrl,
+    role,
+    hardBanned: false,
+    createdAt: new Date(),
+  };
+  user._id = (await col.users().insertOne(user)).insertedId;
+  return user;
+}
+
+// GET /api/auth/bootstrap -> { needed }   true until the super admin has been created
+router.get('/bootstrap', async (req, res) => {
+  res.json({ needed: await needsBootstrap() });
+});
+
+// POST /api/auth/bootstrap  { username?, email, password, birthdate } -> { token, user }
+router.post('/bootstrap', async (req, res) => {
+  if (!(await needsBootstrap())) throw new HttpError(409, 'The super admin has already been set up. Sign in instead.');
+  const details = await validateNewUser(req.body ?? {});
+  const user = await createUser(details, req.body.password, 'superAdmin');
+  await audit('user.bootstrap', user, { username: user.username });
+  res.status(201).json({ token: signToken(user), user: publicUser(user, true) });
+});
+
+// POST /api/auth/register  (multipart: username?, email, password, birthdate, avatar?)
 router.post('/register', imageUpload.single('avatar'), async (req, res) => {
   const avatarUrl = publicPath(req.file);
   try {
-    const username = String(req.body.username ?? '').trim();
-    const email = String(req.body.email ?? '').trim().toLowerCase();
-    const birthdate = new Date(req.body.birthdate);
-
-    if (!USERNAME_RE.test(username)) throw new HttpError(400, 'Username must be 3–20 characters: letters, numbers, dots, dashes or underscores');
-    if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Enter a valid email address');
-    validatePassword(req.body.password);
-    if (Number.isNaN(birthdate.getTime()) || birthdate > new Date()) throw new HttpError(400, 'Enter a valid date of birth');
-
-    if (await col.users().findOne({ email })) throw new HttpError(409, 'An account with that email already exists');
-    if (await col.users().findOne({ usernameKey: username.toLowerCase() })) throw new HttpError(409, `The username "${username}" is taken`);
-
-    const user = {
-      username,
-      usernameKey: username.toLowerCase(),
-      email,
-      passwordHash: await bcrypt.hash(req.body.password, 10),
-      birthdate,
-      avatarUrl,
-      role: 'user',
-      hardBanned: false,
-      createdAt: new Date(),
-    };
-    const { insertedId } = await col.users().insertOne(user);
-    user._id = insertedId;
-    await audit('user.register', user, { username });
-
+    const details = await validateNewUser(req.body ?? {});
+    const user = await createUser(details, req.body.password, 'user', avatarUrl);
+    await audit('user.register', user, { username: user.username });
     res.status(201).json({ token: signToken(user), user: publicUser(user, true) });
   } catch (err) {
-    removeUpload(avatarUrl); // don't keep the image if the account wasn't created
+    removeUpload(avatarUrl);
     throw err;
   }
 });
@@ -73,8 +118,6 @@ router.post('/login', async (req, res) => {
 router.get('/me', authenticate, (req, res) => res.json(publicUser(req.user, true)));
 
 // POST /api/auth/forgot-password  { email }
-// There is no email server in this project, so the reset link is printed in the server terminal.
-// Outside production it is also returned as devResetUrl so it can be demonstrated in the UI.
 router.post('/forgot-password', async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
   const response = { message: 'If that email is registered, a reset link has been sent.' };

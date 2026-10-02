@@ -5,6 +5,7 @@ import { Logo } from '../../components/logo';
 import { errorMessage } from '../../core/error';
 import { AuthService } from '../../services/auth.service';
 
+/** Sign-up page. The username is optional: the server can make one from the email. */
 @Component({
   selector: 'app-register-page',
   imports: [ReactiveFormsModule, RouterLink, Logo],
@@ -14,13 +15,13 @@ import { AuthService } from '../../services/auth.service';
         <h1>Create your account</h1>
         <form [formGroup]="form" (ngSubmit)="submit()" class="stack" novalidate>
           <label class="field">
-            <span>Username</span>
-            <input formControlName="username" autocomplete="username" autocapitalize="off" />
-            <small class="hint">3–20 letters, numbers, dots, dashes or underscores</small>
-          </label>
-          <label class="field">
             <span>Email</span>
             <input type="email" formControlName="email" autocomplete="email" />
+          </label>
+          <label class="field">
+            <span>Username (optional)</span>
+            <input formControlName="username" autocomplete="username" autocapitalize="off" />
+            <small class="hint">Leave blank to use the part of your email before the &#64;, e.g. user1&#64;com.au becomes user1</small>
           </label>
           <label class="field">
             <span>Password</span>
@@ -57,12 +58,13 @@ export class RegisterPage {
   private avatar: File | null = null;
 
   protected readonly form = inject(FormBuilder).nonNullable.group({
-    username: ['', [Validators.required, Validators.pattern(/^[a-zA-Z0-9_.-]{3,20}$/)]],
+    username: ['', Validators.pattern(/^[a-zA-Z0-9_.-]{3,20}$/)],
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required, Validators.minLength(3)]],
     birthdate: ['', Validators.required],
   });
 
+  /** Keeps the chosen profile picture and shows a preview. */
   pick(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0] ?? null;
     if (file && file.size > 5 * 1024 * 1024) {
@@ -73,11 +75,12 @@ export class RegisterPage {
     this.preview.set(file ? URL.createObjectURL(file) : null);
   }
 
+  /** Checks the form, creates the account and opens Find groups. */
   submit(): void {
     if (this.form.invalid) {
       const c = this.form.controls;
       this.error.set(
-        c.username.invalid ? 'Choose a username of 3–20 letters, numbers, dots, dashes or underscores'
+        c.username.invalid ? 'Choose a username of 3–20 letters, numbers, dots, dashes or underscores, or leave it blank'
         : c.email.invalid ? 'Enter a valid email address'
         : c.password.invalid ? 'Use a password of at least 3 characters'
         : 'Enter your date of birth',
@@ -85,7 +88,10 @@ export class RegisterPage {
       return;
     }
     const data = new FormData();
-    for (const [key, value] of Object.entries(this.form.getRawValue())) data.append(key, value.trim());
+    for (const [key, value] of Object.entries(this.form.getRawValue())) {
+      if (key === 'username' && !value.trim()) continue;
+      data.append(key, value.trim());
+    }
     if (this.avatar) data.append('avatar', this.avatar);
 
     this.busy.set(true);

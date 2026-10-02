@@ -5,6 +5,7 @@ import { ChatRequest, REQUEST_LABELS } from '../../core/models';
 import { RequestService } from '../../services/request.service';
 import { ToastService } from '../../services/toast.service';
 
+/** Requests the user has sent and what happened to them. */
 @Component({
   selector: 'app-my-requests-page',
   imports: [DatePipe, TitleCasePipe],
@@ -47,16 +48,18 @@ export class MyRequestsPage implements OnInit {
     this.requests.loadMine().subscribe();
   }
 
+  /** Short description of what the request was for. */
   summary(r: ChatRequest): string {
     switch (r.type) {
       case 'createChannel': return `#${r.name} in ${r.groupName}`;
       case 'deleteChannel': return `#${r.channelName} in ${r.groupName}`;
-      case 'createGroup': return `"${r.name}"`;
+      case 'createGroup': return `"${r.name}"${r.ageLimit ? `, age ${r.ageLimit}+` : ''}`;
       case 'promoteMember': return `${r.targetName} in ${r.groupName}`;
       default: return r.groupName ?? '';
     }
   }
 
+  /** Cancels a pending request. */
   cancel(r: ChatRequest): void {
     this.requests.cancel(r._id).subscribe({ error: (err) => this.toast.show(errorMessage(err), 'error') });
   }

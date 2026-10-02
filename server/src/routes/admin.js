@@ -1,4 +1,3 @@
-// Super admin only: users, hard bans, ban log and audit log.
 const router = require('express').Router();
 const { col, toId } = require('../db');
 const { audit, AUDIT_TYPES } = require('../audit');
@@ -9,6 +8,7 @@ const { HttpError, publicUser } = require('../utils');
 
 router.use(authenticate, requireSuper);
 
+/** Loads req.target from :id. Super admin accounts can't be changed here. */
 async function loadUser(req, res, next) {
   req.target = await col.users().findOne({ _id: toId(req.params.id) });
   if (!req.target) throw new HttpError(404, 'User not found');
@@ -22,14 +22,13 @@ router.get('/users', async (req, res) => {
   res.json(users.map((u) => publicUser(u, true)));
 });
 
-// PATCH /api/admin/users/:id/role  { role: 'user' | 'groupAdmin' }
+// PATCH /api/admin/users/:id/role  { role }
 router.patch('/users/:id/role', loadUser, async (req, res) => {
   const { role } = req.body ?? {};
   if (!['user', 'groupAdmin'].includes(role)) throw new HttpError(400, 'Role must be user or groupAdmin');
 
   await col.users().updateOne({ _id: req.target._id }, { $set: { role } });
   if (role === 'user') {
-    // A demoted user stops being an admin of any group.
     await col.groups().updateMany({ adminIds: req.target._id }, { $pull: { adminIds: req.target._id } });
   }
   await audit('user.roleChange', req.user, { username: req.target.username, role });
@@ -38,7 +37,6 @@ router.patch('/users/:id/role', loadUser, async (req, res) => {
 });
 
 // POST /api/admin/users/:id/hardban  { reason }
-// A hard ban blocks sign-in, removes the user from every group and disconnects them.
 router.post('/users/:id/hardban', loadUser, async (req, res) => {
   const target = req.target;
   if (target.hardBanned) throw new HttpError(409, `${target.username} is already banned`);
@@ -61,14 +59,20 @@ router.post('/users/:id/hardban', loadUser, async (req, res) => {
   res.json({ ok: true });
 });
 
-// DELETE /api/admin/users/:id/hardban -> lift a hard ban
+// DELETE /api/admin/users/:id/hardban
 router.delete('/users/:id/hardban', loadUser, async (req, res) => {
   await col.users().updateOne({ _id: req.target._id }, { $set: { hardBanned: false }, $unset: { hardBanReason: '', hardBannedAt: '' } });
   await audit('user.unban', req.user, { username: req.target.username });
   res.json({ ok: true });
 });
 
-// GET /api/admin/bans -> currently hard-banned users plus the full log of bans
+// DELETE /api/admin/users/:id
+router.delete('/users/:id', loadUser, async (req, res) => {
+  await svc.deleteUser(req.target, req.user);
+  res.status(204).end();
+});
+
+// GET /api/admin/bans
 router.get('/bans', async (req, res) => {
   const [hardBanned, log] = await Promise.all([
     col.users().find({ hardBanned: true }).sort({ hardBannedAt: -1 }).toArray(),

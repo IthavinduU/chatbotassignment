@@ -5,6 +5,7 @@ import { Logo } from '../../components/logo';
 import { errorMessage } from '../../core/error';
 import { AuthService } from '../../services/auth.service';
 
+/** Sign-in page: username or email plus password. */
 @Component({
   selector: 'app-login-page',
   imports: [ReactiveFormsModule, RouterLink, Logo],
@@ -28,7 +29,6 @@ import { AuthService } from '../../services/auth.service';
           <a routerLink="/forgot-password">Forgot your password?</a>
           <a routerLink="/register">Create an account</a>
         </p>
-        <p class="hint">Demo accounts: super, groupadmin, user1, user2. Password: 123</p>
         <div class="auth-logo"><app-logo /></div>
       </section>
     </main>
@@ -44,6 +44,7 @@ export class LoginPage {
     password: ['', Validators.required],
   });
 
+  /** Signs in and sends the user to the right home for their role. */
   submit(): void {
     if (this.form.invalid) return this.error.set('Enter your username or email and your password');
     const { login, password } = this.form.getRawValue();
