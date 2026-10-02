@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { Avatar } from '../../components/avatar';
 import { errorMessage } from '../../core/error';
@@ -23,7 +23,6 @@ export class GroupInfoPage {
   private readonly requests = inject(RequestService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
-  private readonly router = inject(Router);
   protected readonly online = inject(SocketService).online;
 
   readonly gid = input.required<string>();
@@ -34,7 +33,6 @@ export class GroupInfoPage {
   protected readonly me = this.auth.user;
   protected readonly busy = signal(false);
 
-  // Settings form
   protected name = '';
   protected theme: Theme = 'blue';
   protected ageLimit: number | null = null;
@@ -44,7 +42,6 @@ export class GroupInfoPage {
   protected banReason = '';
 
   constructor() {
-    // Fill the settings form from the group (again after each save or remote change).
     effect(() => {
       const g = this.group();
       if (!g) return;
@@ -56,6 +53,7 @@ export class GroupInfoPage {
     });
   }
 
+  /** Saves the name, theme and age limit, and reports anyone removed for age. */
   saveSettings(): void {
     const g = this.group();
     if (!g) return;
@@ -66,6 +64,7 @@ export class GroupInfoPage {
     });
   }
 
+  /** Admins create a chatroom; members send a request for one. */
   addRoom(): void {
     const name = this.newRoom.trim();
     if (!name) return;
@@ -82,12 +81,14 @@ export class GroupInfoPage {
     }
   }
 
+  /** Deletes a chatroom after confirming. */
   deleteRoom(c: Channel): void {
     if (confirm(`Delete #${c.name} and all of its messages?`)) {
       this.run(this.groups.deleteChannel(c._id), () => this.toast.show('Chatroom deleted', 'success'));
     }
   }
 
+  /** Members ask the admins to remove them from the group. */
   requestLeave(): void {
     if (confirm('Ask the group admins to remove you from this group?')) {
       this.run(this.requests.create({ type: 'leaveGroup', groupId: this.gid() }), () =>
@@ -96,11 +97,27 @@ export class GroupInfoPage {
     }
   }
 
+  /** Makes a member an admin of this group. */
+  makeAdmin(m: Member): void {
+    if (confirm(`Make ${m.username} an admin of this group?`)) {
+      this.run(this.groups.promote(this.gid(), m._id), () => this.toast.show(`${m.username} is now a group admin`, 'success'));
+    }
+  }
+
+  /** Removes another admin's admin rights; they stay a member. */
+  removeAdmin(m: Member): void {
+    if (confirm(`Remove ${m.username}'s admin rights? They will stay a member of the group.`)) {
+      this.run(this.groups.demote(this.gid(), m._id), () => this.toast.show(`${m.username} is no longer a group admin`, 'success'));
+    }
+  }
+
+  /** Opens the ban form for a member. */
   openBan(m: Member): void {
     this.banTarget.set(m._id);
     this.banReason = '';
   }
 
+  /** Bans the member with the given reason. */
   confirmBan(m: Member): void {
     this.run(this.groups.ban(this.gid(), m._id, this.banReason), () => {
       this.toast.show(`${m.username} was banned and can't rejoin`, 'success');
@@ -108,14 +125,7 @@ export class GroupInfoPage {
     });
   }
 
-  requestPromotion(m: Member): void {
-    if (confirm(`Ask the super admin to make ${m.username} an admin of this group?`)) {
-      this.run(this.requests.create({ type: 'promoteMember', groupId: this.gid(), targetUserId: m._id }), () =>
-        this.toast.show('Promotion request sent to the super admin', 'success'),
-      );
-    }
-  }
-
+  /** Asks the super admin to delete this group. */
   requestDeletion(): void {
     if (confirm('Ask the super admin to delete this group and all of its chatrooms?')) {
       this.run(this.requests.create({ type: 'deleteGroup', groupId: this.gid() }), () =>
@@ -124,10 +134,12 @@ export class GroupInfoPage {
     }
   }
 
+  /** True when this member is connected right now. */
   isOnline(id: string): boolean {
     return this.online().has(id);
   }
 
+  /** Runs a request with a busy state and an error toast. */
   private run(request: Observable<unknown>, done: (res: unknown) => void): void {
     this.busy.set(true);
     request.subscribe({

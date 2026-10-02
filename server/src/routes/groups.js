@@ -8,18 +8,19 @@ const { THEMES, HttpError, hasId, ageOn, isGroupAdmin, cleanName, channelSlug, p
 
 router.use(authenticate, forbidSuper);
 
+/** Adds each group's chatrooms to it. */
 async function withChannels(groups) {
   const channels = await col.channels().find({ groupId: { $in: groups.map((g) => g._id) } }).sort({ createdAt: 1 }).toArray();
   return groups.map((g) => ({ ...g, channels: channels.filter((c) => String(c.groupId) === String(g._id)) }));
 }
 
-// GET /api/groups/mine -> groups the user belongs to, each with its chatrooms
+// GET /api/groups/mine
 router.get('/mine', async (req, res) => {
   const groups = await col.groups().find({ memberIds: req.user._id }).sort({ name: 1 }).toArray();
   res.json(await withChannels(groups));
 });
 
-// GET /api/groups/discover -> every group with the user's status (member, pending, banned, tooYoung, none)
+// GET /api/groups/discover
 router.get('/discover', async (req, res) => {
   const [groups, pending] = await Promise.all([
     col.groups().find({}).sort({ name: 1 }).toArray(),
@@ -38,7 +39,6 @@ router.get('/discover', async (req, res) => {
 });
 
 // GET /api/groups/:gid/members
-// Everyone gets the current members. Group admins also get the full history (past and banned members).
 router.get('/:gid/members', svc.loadMemberGroup, async (req, res) => {
   const g = req.group;
   const ids = [...g.memberIds, ...g.pastMemberIds, ...g.bannedIds];
@@ -68,7 +68,7 @@ router.get('/:gid/members', svc.loadMemberGroup, async (req, res) => {
   res.json(body);
 });
 
-// PATCH /api/groups/:gid  { name?, theme?, ageLimit? }  (group admin)
+// PATCH /api/groups/:gid  { name?, theme?, ageLimit? }
 router.patch('/:gid', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, res) => {
   const g = req.group;
   const changes = {};
@@ -91,7 +91,6 @@ router.patch('/:gid', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, re
     changes.ageLimit = limit;
   }
 
-  // Only record settings that actually changed.
   const changed = Object.keys(changes).filter((k) => k !== 'nameKey' && changes[k] !== g[k]);
   await col.groups().updateOne({ _id: g._id }, { $set: changes });
   const updated = { ...g, ...changes };
@@ -102,7 +101,23 @@ router.patch('/:gid', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, re
   res.json({ group: await col.groups().findOne({ _id: g._id }), removedForAge: removed });
 });
 
-// POST /api/groups/:gid/bans  { userId, reason }  (group admin) — banned users can never rejoin
+// POST /api/groups/:gid/admins  { userId }
+router.post('/:gid/admins', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, res) => {
+  const target = await col.users().findOne({ _id: toId(req.body?.userId) });
+  if (!target) throw new HttpError(404, 'User not found');
+  await svc.promoteToGroupAdmin(req.group, target, req.user);
+  res.status(201).json({ ok: true });
+});
+
+// DELETE /api/groups/:gid/admins/:uid
+router.delete('/:gid/admins/:uid', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, res) => {
+  const target = await col.users().findOne({ _id: toId(req.params.uid) });
+  if (!target) throw new HttpError(404, 'User not found');
+  await svc.demoteFromGroup(req.group, target, req.user);
+  res.json({ ok: true });
+});
+
+// POST /api/groups/:gid/bans  { userId, reason }
 router.post('/:gid/bans', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, res) => {
   const g = req.group;
   const target = await col.users().findOne({ _id: toId(req.body?.userId) });
@@ -126,7 +141,7 @@ router.post('/:gid/bans', svc.loadMemberGroup, svc.requireGroupAdmin, async (req
   res.status(201).json({ ok: true });
 });
 
-// POST /api/groups/:gid/channels  { name }  (group admin creates a chatroom directly)
+// POST /api/groups/:gid/channels  { name }
 router.post('/:gid/channels', svc.loadMemberGroup, svc.requireGroupAdmin, async (req, res) => {
   const name = channelSlug(req.body?.name);
   if (!name) throw new HttpError(400, 'Chatroom name must be 1–30 letters, numbers or dashes');

@@ -67,6 +67,7 @@
                       } @else {
                         <button type="button" class="btn btn-danger btn-sm" (click)="hardBan(u)" [disabled]="busy()">Hard ban</button>
                       }
+                      <button type="button" class="btn btn-quiet btn-sm" (click)="deleteUser(u)" [disabled]="busy()">Delete</button>
                     }
                   </td>
                 </tr>

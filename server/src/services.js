@@ -1,52 +1,58 @@
+// Shared operations used by several routes (direct admin actions and approved requests).
 const { col, toId } = require('./db');
 const { audit } = require('./audit');
 const realtime = require('./realtime');
+const { removeUpload } = require('./uploads');
 const { HttpError, hasId, ageOn, isGroupAdmin, isMember } = require('./utils');
 
-
-
+/** Loads a group by id or fails with 404. */
 async function findGroup(id) {
   const group = await col.groups().findOne({ _id: toId(id) });
   if (!group) throw new HttpError(404, 'Group not found');
   return group;
 }
 
+/** Loads a chatroom by id or fails with 404. */
 async function findChannel(id) {
   const channel = await col.channels().findOne({ _id: toId(id) });
   if (!channel) throw new HttpError(404, 'Chatroom not found');
   return channel;
 }
 
+/** Loads req.group from :gid and checks the user belongs to it. */
 async function loadMemberGroup(req, res, next) {
   req.group = await findGroup(req.params.gid);
   if (!isMember(req.group, req.user._id)) throw new HttpError(403, 'You are not a member of this group');
   next();
 }
 
+/** Only lets this group's admins continue. */
 function requireGroupAdmin(req, res, next) {
   if (!isGroupAdmin(req.group, req.user)) throw new HttpError(403, 'Only this group’s admins can do that');
   next();
 }
 
+/** Ids of every chatroom in a group. */
 async function channelIdsOf(groupId) {
   const channels = await col.channels().find({ groupId }, { projection: { _id: 1 } }).toArray();
   return channels.map((c) => c._id);
 }
 
-
+/** Fails if another group already has this name (ignoring capitals). */
 async function assertGroupNameFree(name, exceptId = null) {
   const existing = await col.groups().findOne({ nameKey: name.toLowerCase() });
   if (existing && String(existing._id) !== String(exceptId)) throw new HttpError(409, `A group called "${name}" already exists`);
 }
 
-async function createGroup(name, admin, actor) {
+/** Creates a group with a #general chatroom. The admin becomes a group admin if they were a regular user. */
+async function createGroup(name, admin, actor, ageLimit = null) {
   await assertGroupNameFree(name);
   const now = new Date();
   const group = {
     name,
     nameKey: name.toLowerCase(),
     theme: 'blue',
-    ageLimit: null,
+    ageLimit,
     adminIds: [admin._id],
     memberIds: [admin._id],
     memberSince: { [String(admin._id)]: now },
@@ -59,11 +65,13 @@ async function createGroup(name, admin, actor) {
   group._id = insertedId;
   if (admin.role === 'user') await col.users().updateOne({ _id: admin._id }, { $set: { role: 'groupAdmin' } });
   await createChannel(group, 'general', actor);
-  await audit('group.create', actor, { groupName: name, adminName: admin.username }, group._id);
+  await audit('group.create', actor, { groupName: name, adminName: admin.username, ageLimit }, group._id);
+  realtime.toUsers([admin._id], 'account:changed');
   realtime.groupChanged(group);
   return group;
 }
 
+/** Deletes a group with all its chatrooms and messages. */
 async function deleteGroup(group, actor) {
   const channelIds = await channelIdsOf(group._id);
   await col.messages().deleteMany({ channelId: { $in: channelIds } });
@@ -75,7 +83,7 @@ async function deleteGroup(group, actor) {
   realtime.groupChanged(group);
 }
 
-
+/** Adds a member, unless they are banned, hard banned or under the age limit. */
 async function addMember(group, user, actor) {
   if (hasId(group.bannedIds, user._id)) throw new HttpError(400, `${user.username} is banned from this group`);
   if (user.hardBanned) throw new HttpError(400, `${user.username}'s account is banned`);
@@ -92,6 +100,7 @@ async function addMember(group, user, actor) {
   realtime.groupChanged(group, [user._id]);
 }
 
+/** Moves a member to the "past members" list. `type` is the audit type. */
 async function removeMember(group, user, actor, type = 'member.leave', details = {}) {
   await col.groups().updateOne(
     { _id: group._id },
@@ -102,6 +111,7 @@ async function removeMember(group, user, actor, type = 'member.leave', details =
   realtime.groupChanged(group, [user._id]);
 }
 
+/** Removes members who are younger than the group's age limit. Admins are never removed. */
 async function enforceAgeLimit(group, actor) {
   if (!group.ageLimit) return [];
   const members = await col.users()
@@ -114,7 +124,57 @@ async function enforceAgeLimit(group, actor) {
   return underage.map((u) => u.username);
 }
 
+/** Makes a current member an admin of the group (and a group admin if they were a regular user). */
+async function promoteToGroupAdmin(group, target, actor) {
+  if (!isMember(group, target._id)) throw new HttpError(404, `${target.username} is not a member of this group`);
+  if (hasId(group.adminIds, target._id)) throw new HttpError(400, `${target.username} is already an admin of this group`);
 
+  await col.groups().updateOne({ _id: group._id }, { $addToSet: { adminIds: target._id } });
+  if (target.role === 'user') await col.users().updateOne({ _id: target._id }, { $set: { role: 'groupAdmin' } });
+  await audit('member.promote', actor, { username: target.username, groupName: group.name }, group._id);
+  realtime.toUsers([target._id], 'account:changed');
+  realtime.groupChanged(group);
+}
+
+/**
+ * Removes someone's admin rights for a group. They stay a member. If they no longer
+ * administer any group they become a regular user. A group always keeps at least one admin.
+ */
+async function demoteFromGroup(group, target, actor) {
+  if (!hasId(group.adminIds, target._id)) throw new HttpError(400, `${target.username} is not an admin of this group`);
+  if (group.adminIds.length <= 1) throw new HttpError(400, 'A group needs at least one admin. Make someone else an admin first.');
+
+  await col.groups().updateOne({ _id: group._id }, { $pull: { adminIds: target._id } });
+  const adminElsewhere = await col.groups().countDocuments({ _id: { $ne: group._id }, adminIds: target._id });
+  if (!adminElsewhere && target.role === 'groupAdmin') {
+    await col.users().updateOne({ _id: target._id }, { $set: { role: 'user' } });
+  }
+  await audit('member.demote', actor, { username: target.username, groupName: group.name }, group._id);
+  realtime.toUsers([target._id], 'account:changed');
+  realtime.groupChanged(group);
+}
+
+/** Deletes an account: removes it from every group, cancels its requests and signs it out everywhere. */
+async function deleteUser(target, actor) {
+  const groups = await col.groups().find({ memberIds: target._id }).toArray();
+  await col.groups().updateMany(
+    {},
+    { $pull: { memberIds: target._id, adminIds: target._id, pastMemberIds: target._id, bannedIds: target._id } },
+  );
+  await col.requests().updateMany({ requesterId: target._id, status: 'pending' }, { $set: { status: 'cancelled' } });
+  await col.users().deleteOne({ _id: target._id });
+  removeUpload(target.avatarUrl);
+  await audit('user.delete', actor, { username: target.username });
+
+  const io = realtime.getIo();
+  if (io) {
+    io.to(`user:${target._id}`).emit('account:deleted');
+    io.in(`user:${target._id}`).disconnectSockets(true);
+  }
+  for (const g of groups) realtime.groupChanged(g);
+}
+
+/** Creates a chatroom in a group; names must be unique within the group. */
 async function createChannel(group, name, actor) {
   if (await col.channels().findOne({ groupId: group._id, name })) {
     throw new HttpError(409, `This group already has a #${name} chatroom`);
@@ -128,6 +188,7 @@ async function createChannel(group, name, actor) {
   return channel;
 }
 
+/** Deletes a chatroom and its messages and tells anyone inside it. */
 async function deleteChannel(channel, group, actor, type = 'channel.delete') {
   await col.messages().deleteMany({ channelId: channel._id });
   await col.channels().deleteOne({ _id: channel._id });
@@ -140,7 +201,10 @@ async function deleteChannel(channel, group, actor, type = 'channel.delete') {
   if (group) realtime.groupChanged(group);
 }
 
-
+/**
+ * Message history rule: a member sees everything sent since they joined the group,
+ * plus at most the 3 messages sent just before they joined.
+ */
 async function historyFor(channel, group, userId) {
   const joinedAt = new Date(group.memberSince?.[String(userId)] ?? group.createdAt);
   const before = await col.messages()
@@ -159,6 +223,7 @@ async function historyFor(channel, group, userId) {
 module.exports = {
   findGroup, findChannel, loadMemberGroup, requireGroupAdmin, channelIdsOf,
   assertGroupNameFree, createGroup, deleteGroup,
-  addMember, removeMember, enforceAgeLimit,
+  addMember, removeMember, enforceAgeLimit, promoteToGroupAdmin, demoteFromGroup,
+  deleteUser,
   createChannel, deleteChannel, historyFor,
 };

@@ -18,6 +18,7 @@ export interface RoomPresenceEvent {
   username: string;
 }
 
+/** One Socket.io connection per signed-in user. Connects and disconnects automatically with the session. */
 @Injectable({ providedIn: 'root' })
 export class SocketService {
   private readonly auth = inject(AuthService);
@@ -72,6 +73,7 @@ export class SocketService {
     });
   }
 
+  /** Opens the socket with the user's token and wires every server event to a stream or signal. */
   private connect(token: string): void {
     this.disconnect();
     const s = io(SERVER_URL, { auth: { token } });
@@ -79,7 +81,7 @@ export class SocketService {
 
     s.on('connect', () => {
       this.connected.set(true);
-      if (this.currentRoom) s.emit('room:join', { channelId: this.currentRoom }, () => {}); // rejoin after reconnect
+      if (this.currentRoom) s.emit('room:join', { channelId: this.currentRoom }, () => {});
     });
     s.on('disconnect', () => this.connected.set(false));
     s.on('presence', (ids: string[]) => this.online.set(new Set(ids)));
@@ -92,11 +94,15 @@ export class SocketService {
     s.on('requests:changed', () => this.requestsChanged$.next());
     s.on('bans:changed', () => this.bansChanged$.next());
     s.on('account:changed', () => this.auth.refreshMe().subscribe({ error: () => {} }));
-    s.on('account:banned', ({ reason }: { reason: string }) => {
-      this.toast.show(`Your account has been banned: ${reason}`, 'error', 8000);
-      this.auth.clearSession();
-      this.router.navigate(['/login']);
-    });
+    s.on('account:banned', ({ reason }: { reason: string }) => this.signOutWith(`Your account has been banned: ${reason}`, 'error'));
+    s.on('account:deleted', () => this.signOutWith('Your account has been deleted', 'info'));
+  }
+
+  /** Signs the user out with a message, e.g. after a ban or account deletion. */
+  private signOutWith(message: string, kind: 'info' | 'error'): void {
+    this.toast.show(message, kind, 8000);
+    this.auth.clearSession();
+    this.router.navigate(['/login']);
   }
 
   /** Closes the socket and clears connection state. */

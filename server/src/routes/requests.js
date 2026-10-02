@@ -1,4 +1,3 @@
-
 const router = require('express').Router();
 const { col, toId } = require('../db');
 const { audit } = require('../audit');
@@ -13,15 +12,28 @@ const ALL_TYPES = [...GROUP_ADMIN_TYPES, ...SUPER_TYPES];
 
 router.use(authenticate);
 
+/** Fails if a matching request is already waiting. */
 async function assertNoPending(query, message) {
   if (await col.requests().findOne({ ...query, status: 'pending' })) throw new HttpError(409, message);
 }
 
+/** Reads an optional minimum age: empty means none, otherwise a whole number from 1 to 120. */
+function parseAgeLimit(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 120) {
+    throw new HttpError(400, 'Minimum age must be a whole number from 1 to 120, or empty for none');
+  }
+  return n;
+}
+
+/** Tells whoever decides this kind of request that the list has changed. */
 function notifyHandlers(request, group) {
   if (SUPER_TYPES.includes(request.type)) realtime.toSupers('requests:changed');
   else if (group) realtime.toUsers(group.adminIds, 'requests:changed');
 }
 
+// POST /api/requests  { type, groupId?, channelId?, targetUserId?, name?, ageLimit?, reason? }
 router.post('/', async (req, res) => {
   const { type } = req.body ?? {};
   const user = req.user;
@@ -79,12 +91,12 @@ router.post('/', async (req, res) => {
     }
 
     case 'createGroup': {
-      if (user.role !== 'groupAdmin') throw new HttpError(403, 'Only group admins can request new groups');
       const name = cleanName(req.body.name);
       if (!name) throw new HttpError(400, 'Group name must be 1–40 characters');
+      const ageLimit = parseAgeLimit(req.body.ageLimit);
       await svc.assertGroupNameFree(name);
       await assertNoPending({ type, nameKey: name.toLowerCase() }, `A group called "${name}" has already been requested`);
-      Object.assign(doc, { name, nameKey: name.toLowerCase() });
+      Object.assign(doc, { name, nameKey: name.toLowerCase(), ageLimit });
       break;
     }
 
@@ -111,11 +123,12 @@ router.post('/', async (req, res) => {
   res.status(201).json(doc);
 });
 
-
+// GET /api/requests/mine
 router.get('/mine', async (req, res) => {
   res.json(await col.requests().find({ requesterId: req.user._id }).sort({ createdAt: -1 }).limit(100).toArray());
 });
 
+// GET /api/requests/incoming?type=
 router.get('/incoming', async (req, res) => {
   const type = req.query.type;
   const query = { status: 'pending' };
@@ -132,7 +145,7 @@ router.get('/incoming', async (req, res) => {
   res.json(await col.requests().find(query).sort({ createdAt: 1 }).toArray());
 });
 
-
+/** Loads req.request and checks it is still pending. */
 async function loadPending(req, res, next) {
   const request = await col.requests().findOne({ _id: toId(req.params.id) });
   if (!request) throw new HttpError(404, 'Request not found');
@@ -141,6 +154,7 @@ async function loadPending(req, res, next) {
   next();
 }
 
+/** Checks the user is allowed to decide this request. */
 async function requireHandler(req, res, next) {
   const { request, user } = req;
   if (SUPER_TYPES.includes(request.type)) {
@@ -152,6 +166,7 @@ async function requireHandler(req, res, next) {
   next();
 }
 
+/** Marks a request approved or rejected, logs it and tells the people involved. */
 async function finish(req, status) {
   const { request, user } = req;
   await col.requests().updateOne(
@@ -164,6 +179,7 @@ async function finish(req, status) {
   notifyHandlers(request, req.group);
 }
 
+// POST /api/requests/:id/approve
 router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
   const { request, user } = req;
   const requester = await col.users().findOne({ _id: request.requesterId });
@@ -185,7 +201,7 @@ router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
       break;
     }
     case 'createGroup':
-      await svc.createGroup(request.name, requester, user);
+      await svc.createGroup(request.name, requester, user, request.ageLimit ?? null);
       break;
     case 'deleteGroup': {
       const group = await col.groups().findOne({ _id: request.groupId });
@@ -195,12 +211,8 @@ router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
     case 'promoteMember': {
       const group = await svc.findGroup(request.groupId);
       const target = await col.users().findOne({ _id: request.targetUserId });
-      if (!target || !isMember(group, target._id)) throw new HttpError(400, 'That user is no longer a member of the group');
-      await col.groups().updateOne({ _id: group._id }, { $addToSet: { adminIds: target._id } });
-      if (target.role === 'user') await col.users().updateOne({ _id: target._id }, { $set: { role: 'groupAdmin' } });
-      await audit('member.promote', user, { username: target.username, groupName: group.name }, group._id);
-      realtime.toUsers([target._id], 'account:changed');
-      realtime.groupChanged(group);
+      if (!target) throw new HttpError(400, 'That user no longer exists');
+      await svc.promoteToGroupAdmin(group, target, user);
       break;
     }
   }
@@ -209,11 +221,13 @@ router.post('/:id/approve', loadPending, requireHandler, async (req, res) => {
   res.json({ ok: true });
 });
 
+// POST /api/requests/:id/reject
 router.post('/:id/reject', loadPending, requireHandler, async (req, res) => {
   await finish(req, 'rejected');
   res.json({ ok: true });
 });
 
+// DELETE /api/requests/:id
 router.delete('/:id', loadPending, async (req, res) => {
   if (String(req.request.requesterId) !== String(req.user._id)) throw new HttpError(403, 'You can only cancel your own requests');
   await col.requests().updateOne({ _id: req.request._id }, { $set: { status: 'cancelled' } });

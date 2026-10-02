@@ -16,7 +16,6 @@
     </header>
 
     <div class="grid">
-      <!-- Chatrooms -->
       <section class="panel">
         <h2>Chatrooms</h2>
         <ul class="list">
@@ -40,7 +39,6 @@
         </form>
       </section>
 
-      <!-- Settings (admins) -->
       @if (isAdmin()) {
         <section class="panel">
           <h2>Group settings</h2>
@@ -70,7 +68,6 @@
         </section>
       }
 
-      <!-- Members -->
       <section class="panel members-panel">
         @if (isAdmin() && groups.members().history) {
           <h2>All members, past and present</h2>
@@ -85,9 +82,13 @@
                   @if (m.status === 'past') { <span class="muted small">(past member)</span> }
                   @if (m.status === 'banned') { <span class="small">(banned)</span> }
                 </span>
-                @if (m.status === 'current' && !m.isAdmin && m._id !== me()?._id) {
-                  <button type="button" class="btn btn-quiet btn-sm" (click)="requestPromotion(m)" [disabled]="busy()">Request promotion</button>
-                  <button type="button" class="btn btn-quiet btn-sm" (click)="openBan(m)" [disabled]="busy()">Ban</button>
+                @if (m.status === 'current' && m._id !== me()?._id) {
+                  @if (m.isAdmin) {
+                    <button type="button" class="btn btn-quiet btn-sm" (click)="removeAdmin(m)" [disabled]="busy()">Remove admin</button>
+                  } @else {
+                    <button type="button" class="btn btn-quiet btn-sm" (click)="makeAdmin(m)" [disabled]="busy()">Make group admin</button>
+                    <button type="button" class="btn btn-quiet btn-sm" (click)="openBan(m)" [disabled]="busy()">Ban</button>
+                  }
                 }
                 @if (banTarget() === m._id) {
                   <form class="ban-form" (ngSubmit)="confirmBan(m)">
@@ -116,7 +117,6 @@
         }
       </section>
 
-      <!-- Other actions -->
       <section class="panel">
         @if (isAdmin()) {
           <h2>Delete group</h2>

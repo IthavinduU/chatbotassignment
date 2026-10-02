@@ -39,7 +39,6 @@ export class AdminPage implements OnInit {
   protected readonly hardBanned = signal<User[]>([]);
   protected readonly banLog = signal<AuditEntry[]>([]);
 
-  // Audit log filters
   protected readonly auditTypes = signal<string[]>([]);
   protected readonly auditEntries = signal<AuditEntry[]>([]);
   protected auditType = '';
@@ -65,6 +64,7 @@ export class AdminPage implements OnInit {
     this.loadUsers();
   }
 
+  /** Switches tab and loads its data. */
   show(tab: Tab): void {
     this.tab.set(tab);
     if (tab === 'requests') this.requests.loadIncoming();
@@ -73,26 +73,29 @@ export class AdminPage implements OnInit {
     if (tab === 'audit') this.loadAudit();
   }
 
-  // ---- requests ----
+  /** Approves or rejects a request. */
   decide(r: ChatRequest, approve: boolean): void {
     this.run(approve ? this.requests.approve(r._id) : this.requests.reject(r._id), approve ? 'Request approved' : 'Request rejected');
   }
 
-  // ---- users ----
+  /** Loads every user. */
   loadUsers(): void {
     this.admin.users().subscribe((u) => this.users.set(u));
   }
 
+  /** Changes a user's role. */
   changeRole(user: User, role: 'user' | 'groupAdmin'): void {
     this.run(this.admin.setRole(user._id, role), `${user.username} is now a ${ROLE_LABELS[role].toLowerCase()}`, () => this.loadUsers());
   }
 
+  /** Hard bans a user after asking for a reason. */
   hardBan(user: User): void {
     const reason = prompt(`Why are you banning ${user.username}? They will be signed out and removed from every group.`);
     if (reason === null) return;
     this.run(this.admin.hardBan(user._id, reason), `${user.username} has been banned`, () => this.loadUsers());
   }
 
+  /** Lifts a user's hard ban. */
   liftBan(user: User): void {
     this.run(this.admin.liftBan(user._id), `${user.username} can sign in again`, () => {
       this.loadUsers();
@@ -100,7 +103,13 @@ export class AdminPage implements OnInit {
     });
   }
 
-  // ---- bans ----
+  /** Deletes a user's account after confirming. */
+  deleteUser(user: User): void {
+    if (!confirm(`Delete ${user.username}'s account? They will be removed from every group. This cannot be undone.`)) return;
+    this.run(this.admin.deleteUser(user._id), `${user.username} has been deleted`, () => this.loadUsers());
+  }
+
+  /** Loads hard-banned users and the ban log. */
   loadBans(): void {
     this.admin.bans().subscribe((b) => {
       this.hardBanned.set(b.hardBanned);
@@ -108,7 +117,7 @@ export class AdminPage implements OnInit {
     });
   }
 
-  // ---- audit ----
+  /** Loads audit entries using the current filters. */
   loadAudit(): void {
     this.admin
       .audit({ type: this.auditType, order: this.auditOrder, from: this.auditFrom, to: this.auditTo })
@@ -121,11 +130,13 @@ export class AdminPage implements OnInit {
       });
   }
 
+  /** Signs out and returns to the sign-in page. */
   signOut(): void {
     this.auth.logout();
     this.router.navigate(['/login']);
   }
 
+  /** Runs a request with a busy state and success or error toasts. */
   private run(req: Observable<unknown>, success: string, done?: () => void): void {
     this.busy.set(true);
     req.subscribe({

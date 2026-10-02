@@ -60,7 +60,6 @@ export interface Member extends User {
 
 export interface Members {
   current: Member[];
-  /** Only returned to group admins. */
   history?: Member[];
 }
 
@@ -94,6 +93,7 @@ export interface ChatRequest {
   targetUserId?: string;
   targetName?: string;
   name?: string;
+  ageLimit?: number | null;
   reason: string | null;
   createdAt: string;
   handledByName?: string;
@@ -117,7 +117,7 @@ export function describeRequest(r: ChatRequest): string {
     case 'leaveGroup': return `${r.requesterName} wants to leave ${r.groupName}`;
     case 'createChannel': return `${r.requesterName} wants a #${r.name} chatroom in ${r.groupName}`;
     case 'deleteChannel': return `${r.requesterName} wants #${r.channelName} in ${r.groupName} deleted`;
-    case 'createGroup': return `${r.requesterName} wants a new group called "${r.name}"`;
+    case 'createGroup': return `${r.requesterName} wants a new group called "${r.name}"${r.ageLimit ? ` (age ${r.ageLimit}+)` : ''}`;
     case 'deleteGroup': return `${r.requesterName} wants ${r.groupName} deleted`;
     case 'promoteMember': return `${r.requesterName} wants ${r.targetName} made an admin of ${r.groupName}`;
   }

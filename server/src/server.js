@@ -9,7 +9,11 @@ const { startJobs } = require('./jobs');
 async function main() {
   await db.connect();
   console.log(`Connected to MongoDB (${config.dbName})`);
-  await seed({ demo: config.seedDemo });
+
+  if (config.seedDemo) await seed({ demo: true });
+  if ((await db.col.users().countDocuments({ role: 'superAdmin' })) === 0) {
+    console.log(`No super admin yet: open ${config.clientOrigin} to set one up`);
+  }
 
   const server = http.createServer(createApp());
   attachSocket(server);
