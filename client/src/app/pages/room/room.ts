@@ -14,6 +14,7 @@ import { RequestService } from '../../services/request.service';
 import { SocketService } from '../../services/socket.service';
 import { ToastService } from '../../services/toast.service';
 
+/** A chatroom: live messages, image sending, and join/leave notifications. */
 @Component({
   selector: 'app-room-page',
   imports: [FormsModule, DatePipe, Avatar],
@@ -50,6 +51,7 @@ export class RoomPage {
   protected readonly fileUrl = fileUrl;
 
   constructor() {
+    // Open the chatroom whenever the :cid route parameter changes.
     effect(() => {
       const cid = this.cid();
       untracked(() => this.open(cid));
@@ -61,9 +63,14 @@ export class RoomPage {
       this.scrollToBottom();
     });
 
-    // Toast when someone new opens this chatroom.
+    // Toast when someone opens this chatroom.
     this.socket.userJoined$.pipe(takeUntilDestroyed()).subscribe((e) => {
-      if (e.channelId === this.cid()) this.toast.show(`${e.username} joined #${this.channel()?.name ?? 'the chatroom'}`);
+      if (e.channelId === this.cid()) this.toast.show(`${e.username} joined #${this.roomName()}`);
+    });
+
+    // Toast when someone leaves this chatroom.
+    this.socket.userLeft$.pipe(takeUntilDestroyed()).subscribe((e) => {
+      if (e.channelId === this.cid()) this.toast.show(`${e.username} left #${this.roomName()}`);
     });
 
     this.socket.roomDeleted$.pipe(takeUntilDestroyed()).subscribe((e) => {
@@ -72,9 +79,11 @@ export class RoomPage {
       this.router.navigate(['/app']);
     });
 
+    // Leaving the page leaves the chatroom, which notifies the others.
     inject(DestroyRef).onDestroy(() => this.openedRoom && this.socket.leaveRoom(this.openedRoom));
   }
 
+  /** Joins the live room, then loads its message history. */
   private async open(cid: string): Promise<void> {
     if (this.openedRoom && this.openedRoom !== cid) this.socket.leaveRoom(this.openedRoom);
     this.openedRoom = cid;
@@ -100,10 +109,17 @@ export class RoomPage {
     });
   }
 
+  /** The current chatroom's name, for toasts. */
+  private roomName(): string {
+    return this.channel()?.name ?? 'the chatroom';
+  }
+
+  /** True when the message was sent by the signed-in user. */
   isMine(m: Message): boolean {
     return m.userId === this.me()?._id;
   }
 
+  /** Validates and previews an image chosen for sending. */
   pickImage(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0] ?? null;
@@ -116,11 +132,13 @@ export class RoomPage {
     this.preview.set(URL.createObjectURL(file));
   }
 
+  /** Removes the chosen image before sending. */
   clearImage(): void {
     this.image.set(null);
     this.preview.set(null);
   }
 
+  /** Enter sends; Shift+Enter adds a new line. */
   onKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -128,6 +146,7 @@ export class RoomPage {
     }
   }
 
+  /** Uploads the image (if any), then sends the message over the socket. */
   async send(): Promise<void> {
     const text = this.draft.trim();
     const file = this.image();
@@ -148,6 +167,7 @@ export class RoomPage {
     }
   }
 
+  /** Asks the group admins to delete this chatroom. */
   requestDeletion(): void {
     const c = this.channel();
     if (!c || !confirm(`Ask the group admins to delete #${c.name}?`)) return;
@@ -157,6 +177,7 @@ export class RoomPage {
     });
   }
 
+  /** Group admins delete the chatroom directly. */
   deleteRoom(): void {
     const c = this.channel();
     if (!c || !confirm(`Delete #${c.name} and all of its messages?`)) return;
@@ -166,6 +187,7 @@ export class RoomPage {
     });
   }
 
+  /** Scrolls the message list to the newest message after it renders. */
   private scrollToBottom(): void {
     setTimeout(() => {
       const el = this.log()?.nativeElement;

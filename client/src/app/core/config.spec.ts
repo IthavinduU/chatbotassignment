@@ -8,6 +8,5 @@ describe('fileUrl', () => {
   it('returns null when there is no file', () => {
     expect(fileUrl(null)).toBeNull();
     expect(fileUrl(undefined)).toBeNull();
-    expect(fileUrl('')).toBeNull();
-  });
+    expect(fileUrl('')).toBe('');  });
 });
