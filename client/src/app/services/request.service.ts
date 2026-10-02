@@ -7,7 +7,6 @@ import { AuthService } from './auth.service';
 import { SocketService } from './socket.service';
 import { ToastService } from './toast.service';
 
-/** What can be sent when creating a request. */
 export interface NewRequest {
   type: RequestType;
   groupId?: string;

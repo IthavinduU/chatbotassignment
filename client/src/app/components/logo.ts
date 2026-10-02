@@ -1,6 +1,6 @@
 import { Component, input } from '@angular/core';
 
-/** fabulari logo: three chat bubbles in the app's red, yellow and blue. */
+/** The Fabulari logo, with optional text. */
 @Component({
   selector: 'app-logo',
   template: `

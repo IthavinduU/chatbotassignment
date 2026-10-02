@@ -19,7 +19,7 @@ export const memberAreaGuard: CanActivateFn = () =>
 export const superGuard: CanActivateFn = () =>
   inject(AuthService).isSuperAdmin() || inject(Router).createUrlTree(['/app']);
 
-/** "/" sends people to the right place for their role. */
+/** sends people to the right place for their role. */
 export const homeRedirect: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);

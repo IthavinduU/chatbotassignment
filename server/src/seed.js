@@ -1,8 +1,11 @@
+// Demo data for an empty database (used when SEED_DEMO=true, and by the tests)
 const bcrypt = require('bcryptjs');
 const { col } = require('./db');
 
+// Every demo account uses this password
 const DEMO_PASSWORD = '123';
 
+// Creates one demo user and returns it with its new id
 async function makeUser(username, role, birthdate) {
   const user = {
     username,
@@ -19,17 +22,21 @@ async function makeUser(username, role, birthdate) {
   return user;
 }
 
+// Adds the super admin, plus demo users, groups and messages when demo is true
 async function seed({ demo = true } = {}) {
+  // Only runs on an empty database
   if ((await col.users().countDocuments()) > 0) return false;
 
   const superAdmin = await makeUser('super', 'superAdmin', '1990-01-01');
   console.log('Created super admin: super / 123');
   if (!demo) return true;
 
+  // Demo users
   const groupadmin = await makeUser('groupadmin', 'groupAdmin', '1995-05-12');
   const user1 = await makeUser('user1', 'user', '2001-09-03');
   const user2 = await makeUser('user2', 'user', '2010-02-20'); // under 18, useful for testing age limits
 
+  // Demo groups were "created" 3 days ago
   const earlier = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
   const group = {
     name: 'Study Group',
@@ -46,6 +53,7 @@ async function seed({ demo = true } = {}) {
   };
   group._id = (await col.groups().insertOne(group)).insertedId;
 
+  // Second group, copied from the first with a different name, theme and members
   const second = {
     ...group,
     _id: undefined,
@@ -58,6 +66,7 @@ async function seed({ demo = true } = {}) {
   delete second._id;
   second._id = (await col.groups().insertOne(second)).insertedId;
 
+  // Chatrooms for both groups
   const channels = [
     { groupId: group._id, name: 'general' },
     { groupId: group._id, name: 'assignment-help' },
@@ -65,6 +74,7 @@ async function seed({ demo = true } = {}) {
   ].map((c) => ({ ...c, createdBy: groupadmin._id, createdAt: earlier, lastActivityAt: new Date() }));
   const { insertedIds } = await col.channels().insertMany(channels);
 
+  // Sample conversation in Study Group #general, one hour apart
   const lines = [
     [groupadmin, 'Welcome to the study group!'],
     [user1, 'Thanks! Has anyone started the assignment?'],
@@ -83,6 +93,7 @@ async function seed({ demo = true } = {}) {
     createdAt: new Date(earlier.getTime() + (i + 1) * 60 * 60 * 1000),
   })));
 
+  // A pending join request, so the requests menu has something in it
   await col.requests().insertOne({
     type: 'joinGroup', status: 'pending',
     requesterId: user1._id, requesterName: 'user1',

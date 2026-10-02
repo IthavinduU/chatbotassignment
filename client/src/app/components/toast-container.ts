@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { ToastService } from '../services/toast.service';
 
+/** Toast notifications, shown in the top right corner of the screen. */
 @Component({
   selector: 'app-toasts',
   template: `

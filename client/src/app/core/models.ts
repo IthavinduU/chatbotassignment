@@ -2,6 +2,8 @@ export type Role = 'user' | 'groupAdmin' | 'superAdmin';
 export type Theme = 'blue' | 'red' | 'yellow';
 export const THEMES: Theme[] = ['blue', 'red', 'yellow'];
 
+
+
 export const ROLE_LABELS: Record<Role, string> = {
   user: 'Member',
   groupAdmin: 'Group admin',
@@ -110,7 +112,6 @@ export const REQUEST_LABELS: Record<RequestType, string> = {
   promoteMember: 'Promote member',
 };
 
-/** One-line summary of what a request asks for. */
 export function describeRequest(r: ChatRequest): string {
   switch (r.type) {
     case 'joinGroup': return `${r.requesterName} wants to join ${r.groupName}`;
